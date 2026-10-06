@@ -1,0 +1,65 @@
+<UserControl x:Class="Chat.HistoryPage" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:Chat" FlowDirection="RightToLeft" FontFamily="{StaticResource UiFont}" Foreground="{DynamicResource Ink}" Background="{DynamicResource Canvas}">
+ <UserControl.Resources>
+  <Style x:Key="DeleteAction" TargetType="Button" BasedOn="{StaticResource IconButton}"><Setter Property="local:Ui.HoverBrush" Value="#14B91C1C"/><Style.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter Property="Foreground" Value="{DynamicResource Danger}"/></Trigger><Trigger Property="IsKeyboardFocused" Value="True"><Setter Property="Foreground" Value="{DynamicResource Danger}"/></Trigger></Style.Triggers></Style>
+ </UserControl.Resources>
+ <Grid>
+  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <!-- Screen header: back arrow, title and count. -->
+  <Border Background="{DynamicResource Surface}" Height="52" Padding="6,0,12,0">
+   <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
+    <Button x:Name="BackButton" Style="{StaticResource IconButton}" Foreground="{DynamicResource Ink}" Click="Back" ToolTip="חזרה לשיחה" AutomationProperties.Name="חזרה לשיחה"><local:Icon Kind="back" Size="20" StrokeWidth="2"/></Button>
+    <TextBlock Text="היסטוריית שיחות" FontSize="16" FontWeight="Bold" VerticalAlignment="Center" Margin="6,0,0,0"/>
+    <Border Background="{DynamicResource Subtle}" CornerRadius="10" Padding="8,1,8,2" Margin="8,0,0,0" VerticalAlignment="Center"><TextBlock x:Name="ConversationCount" Foreground="{DynamicResource Secondary}" FontSize="12" FontWeight="SemiBold"/></Border>
+   </StackPanel>
+  </Border>
+  <StackPanel Grid.Row="1" Background="{DynamicResource Surface}">
+   <Grid Margin="12,2,12,0">
+    <Border Background="{DynamicResource Subtle}" CornerRadius="12" Height="42">
+     <TextBox x:Name="SearchBox" Background="Transparent" BorderThickness="0" Padding="34,0,12,0" VerticalContentAlignment="Center" FontSize="13.5" TextChanged="FilterChanged" AutomationProperties.Name="חיפוש בשיחות"/>
+    </Border>
+    <local:Icon Kind="search" Size="17" StrokeWidth="2" TextElement.Foreground="{DynamicResource Muted}" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="12,0,0,0"/>
+    <TextBlock x:Name="SearchHint" Text="חיפוש בשיחות…" FontSize="13.5" Foreground="{DynamicResource Muted}" VerticalAlignment="Center" HorizontalAlignment="Left" Margin="36,0,0,0" IsHitTestVisible="False"/>
+   </Grid>
+   <WrapPanel x:Name="Filters" Margin="12,10,12,4"/>
+   <Border Height="1" Background="{DynamicResource Line}" Margin="0,6,0,0"/>
+  </StackPanel>
+  <Grid Grid.Row="2">
+   <StackPanel x:Name="Empty" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20">
+    <Border Width="56" Height="56" CornerRadius="16" Background="{DynamicResource Subtle}" HorizontalAlignment="Center"><local:Icon Kind="history" Size="24" StrokeWidth="2" TextElement.Foreground="{DynamicResource Muted}"/></Border>
+    <TextBlock x:Name="EmptyTitle" Text="אין עדיין שיחות שמורות" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,12,0,4"/>
+    <TextBlock x:Name="EmptyDetail" Text="השיחות שלכם יופיעו כאן" Foreground="{DynamicResource Secondary}" FontSize="12.5" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap"/>
+   </StackPanel>
+   <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="12,4,8,12">
+    <!-- One card per day; rows are separated by thin dividers. -->
+    <ItemsControl x:Name="GroupList" Focusable="False"><ItemsControl.ItemTemplate><DataTemplate>
+     <StackPanel Margin="0,10,0,0">
+      <TextBlock Text="{Binding Label}" FontSize="12.5" FontWeight="SemiBold" Foreground="{DynamicResource Secondary}" Margin="4,0,0,8"/>
+      <Border Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="14">
+       <ItemsControl ItemsSource="{Binding Items}" Focusable="False"><ItemsControl.ItemTemplate><DataTemplate>
+        <Border BorderBrush="{DynamicResource Divider}" BorderThickness="{Binding Divider}">
+         <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <Button Click="OpenConversation" Tag="{Binding Conversation}" Style="{StaticResource RowButton}" local:Ui.CornerRadius="{Binding Corners}" Padding="14,9,8,9" ToolTip="פתיחת השיחה" AutomationProperties.Name="{Binding AccessibleName}">
+           <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition/></Grid.ColumnDefinitions>
+            <Ellipse Width="10" Height="10" Fill="{Binding Badge}" VerticalAlignment="Center" Margin="0,0,12,0"/>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" FontWeight="Medium"/><TextBlock Text="{Binding Meta}" Foreground="{DynamicResource Secondary}" FontSize="12" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/></StackPanel>
+           </Grid>
+          </Button>
+          <Button Grid.Column="1" Style="{StaticResource DeleteAction}" Click="DeleteConversation" Tag="{Binding Conversation}" ToolTip="מחיקת השיחה" AutomationProperties.Name="מחיקת השיחה" Margin="0,0,6,0" VerticalAlignment="Center"><local:Icon Kind="trash" Size="18" StrokeWidth="1.8"/></Button>
+          <Border Grid.Row="1" Grid.ColumnSpan="2" Tag="confirmation" Visibility="Collapsed" Margin="8,0,8,8" Background="{DynamicResource DangerSoft}" CornerRadius="10" Padding="12,2">
+           <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <TextBlock Text="למחוק את השיחה?" VerticalAlignment="Center"/>
+            <Button Grid.Column="1" Content="כן" Tag="{Binding Conversation}" Click="ConfirmDelete" Style="{StaticResource SmallGhostButton}" Foreground="{DynamicResource Danger}" FontWeight="SemiBold" MinHeight="40" Padding="14,4" AutomationProperties.Name="כן, למחוק את השיחה"/>
+            <Button Grid.Column="2" Content="ביטול" Click="CancelDelete" Style="{StaticResource SmallGhostButton}" Foreground="{DynamicResource Ink}" MinHeight="40" Padding="14,4"/>
+           </Grid>
+          </Border>
+         </Grid>
+        </Border>
+       </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+      </Border>
+     </StackPanel>
+    </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
+   </ScrollViewer>
+  </Grid>
+  <TextBlock x:Name="Status" Grid.Row="3" TextWrapping="Wrap" Foreground="{DynamicResource Danger}" Margin="16,0,16,10"/>
+ </Grid>
+</UserControl>

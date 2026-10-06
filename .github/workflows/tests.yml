@@ -1,6 +1,6 @@
 name: tests
 
-# The apps are Windows-only (WPF, DPAPI), so tests run on a Windows runner. This is what verifies changes made
+# Chaty is Windows-only (WPF, DPAPI), so tests run on a Windows runner. This is what verifies changes made
 # from Linux environments such as Claude Code cloud sessions, where the projects build but DPAPI-based tests can't run.
 on:
   push:
@@ -8,10 +8,10 @@ on:
   workflow_dispatch:
 
 jobs:
-  local:
-    name: Chaty (local edition)
+  chaty:
+    name: Chaty
     runs-on: windows-latest
-    defaults: { run: { working-directory: local/development } }
+    defaults: { run: { working-directory: development } }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -24,13 +24,3 @@ jobs:
           $output = dotnet run --project tests/Chat.Smoke 2>&1 | Out-String
           Write-Output $output
           if ($LASTEXITCODE -ne 0 -or $output -notmatch 'PASS' -or $output -match 'FAIL') { exit 1 }
-
-  advance:
-    name: Server-managed edition
-    runs-on: windows-latest
-    defaults: { run: { working-directory: advance/development } }
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
-        with: { dotnet-version: 8.0.x }
-      - run: dotnet test WindowsChat.sln -nologo

@@ -1,0 +1,162 @@
+using Knowledge.Core;
+using Xunit;
+
+namespace Knowledge.Tests;
+
+public sealed class AnswerFlowTests
+{
+    [Fact]
+    public async Task StrongDocumentMatchOverridesRepeatedGeneralReply()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            var ai = new QueueAi("""{"action":"reply","reply":"generic"}""", """{"action":"reply","reply":"still generic"}""",
+                """{"answer":"Call 4321","citations":[1]}""", """{"answer":"Call 4321","citations":[1]}""");
+            var answer = await new ChatEngine(new(), ai, new Search(path)).AskAsync("Call 4321", new(), null, default);
+            Assert.Equal("Call 4321", answer.Text); Assert.Single(answer.Sources);
+        }
+        finally { File.Delete(path); }
+    }
+    [Fact]
+    public async Task PersonalPromptIsUsedWithoutSourcesAndDoesNotAffectGeneralChat()
+    {
+        var type = new ChatType { Name = "writer", Prompt = "Use short sentences." };
+        var config = type.Apply(new());
+        var ai = new QueueAi("answer");
+        await new ChatEngine(config, ai, new Search("unused")).AskAsync("Help me write", new(), null, default);
+        Assert.Contains(type.Prompt, ai.Instructions.Single());
+        var general = ChatType.General();
+        general.Prompt = "ignored";
+        Assert.Equal("", general.Apply(new()).AssistantPrompt);
+    }
+    [Fact]
+    public async Task GeneralChatAnswersWithoutPlanningOrSearching()
+    {
+        var search = new Search("unused");
+        var ai = new QueueAi("תשובה כללית");
+        var config = ChatType.General().Apply(new Config { Documents = new() { Root = @"C:\private" } });
+        Assert.Empty(config.Documents.EffectiveRoots);
+        var result = await new ChatEngine(config, ai, search).AskAsync("איך מאפסים סיסמה?", new(), null, default);
+        Assert.Equal("תשובה כללית", result.Text);
+        Assert.Empty(result.Sources);
+        Assert.False(search.Searched);
+        Assert.Null(search.ReadPath);
+        Assert.Single(ai.Inputs);
+    }
+    [Fact]
+    public void ModelInputPreservesReadableHebrew()
+    {
+        var json = AiJson.Serialize(new { question = "איך מאפסים סיסמה?" });
+        Assert.Contains("איך מאפסים סיסמה", json);
+        Assert.DoesNotContain("\\u05", json);
+    }
+
+    [Fact]
+    public async Task ReviewCorrectsGreetingAndChecksGroundedAnswer()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            var search = new Search(path);
+            var ai = new QueueAi("""{"action":"reply","reply":"hello"}""",
+                """{"action":"search","query":"password"}""",
+                """{"answer":"wrong draft","citations":[1]}""",
+                """{"answer":"Call 4321","citations":[1]}""");
+            var answer = await new ChatEngine(new(), ai, search).AskAsync("איך מאפסים סיסמה?", new(), null, default);
+            Assert.Equal("Call 4321", answer.Text);
+            Assert.Single(answer.Sources);
+            Assert.Contains("איך מאפסים סיסמה", ai.Inputs[0]);
+            Assert.Contains("wrong draft", ai.Inputs[^1]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task FirstSourceSelectionReadsDocumentInsteadOfKeywordSearch()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            var search = new Search(path);
+            var chat = new Conversation { Messages = [new("assistant", "choose", DateTimeOffset.Now, [new(path, "section one"), new(path, "section two")])] };
+            var ai = new QueueAi("""{"answer":"Call 4321","citations":[1]}""", """{"answer":"Call 4321","citations":[1]}""");
+            var answer = await new ChatEngine(new(), ai, search).AskAsync("הראשון", chat, null, default);
+            Assert.Equal(path, search.ReadPath);
+            Assert.False(search.Searched);
+            Assert.Single(answer.Sources);
+            Assert.Contains("Call 4321", ai.Inputs[0]);
+            Assert.Equal(2, ai.Inputs.Count);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task AnswerModesUseDifferentSteps()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            const string answer = """{"answer":"Reset it","citations":[1]}""";
+            // Fast: no planner and no reviewer, one answer call asking for a short answer.
+            var fast = new QueueAi(answer);
+            var search = new Search(path);
+            var result = await new ChatEngine(new(), fast, search) { Mode = AnswerMode.Fast }.AskAsync("how do I reset the frozen app", new(), null, default);
+            Assert.Equal("Reset it", result.Text);
+            Assert.Single(fast.Instructions);
+            Assert.Contains("fast mode", fast.Instructions[0]);
+            Assert.True(search.Searched);
+            Assert.Null(search.ReadPath);
+
+            // Normal: planner, answer and reviewer; no full document read.
+            var normal = new QueueAi("""{"action":"search","query":"reset frozen app"}""", answer, answer);
+            search = new Search(path);
+            await new ChatEngine(new(), normal, search).AskAsync("how do I reset the frozen app", new(), null, default);
+            Assert.Equal(3, normal.Instructions.Count);
+            Assert.DoesNotContain(normal.Instructions, i => i.Contains("fast mode") || i.Contains("deep mode"));
+            Assert.Null(search.ReadPath);
+
+            // Deep: also reads the best document and asks for a complete answer and a completeness review.
+            var deep = new QueueAi("""{"action":"search","query":"reset frozen app"}""", answer, answer);
+            search = new Search(path, "If it still fails, open a support ticket.");
+            await new ChatEngine(new(), deep, search) { Mode = AnswerMode.Deep }.AskAsync("how do I reset the frozen app", new(), null, default);
+            Assert.Equal(path, search.ReadPath);
+            Assert.Contains("support ticket", deep.Inputs[1]);
+            Assert.Contains("deep mode", deep.Instructions[1]);
+            Assert.Contains("left out", deep.Instructions[2]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public void InlineNumberedPointsGetTheirOwnLines()
+    {
+        Assert.Equal("יש לבצע את הצעדים הבאים:\n1. שער אורן\n2. אבטחה\n3. אימות דו שלבי. גרסה 2.5 בלבד.", AnswerFormat.SplitInlineLists("יש לבצע את הצעדים הבאים: 1. שער אורן 2. אבטחה 3. אימות דו שלבי. גרסה 2.5 בלבד."));
+        Assert.Equal("שלב 3. בלבד", AnswerFormat.SplitInlineLists("שלב 3. בלבד"));
+        Assert.Equal("```\n1. a 2. b\n```", AnswerFormat.SplitInlineLists("```\n1. a 2. b\n```"));
+    }
+    private sealed class QueueAi(params string[] responses) : IAiClient
+    {
+        private readonly Queue<string> queue = new(responses);
+        public List<string> Inputs = [];
+        public List<string> Instructions = [];
+        public Task<string> CompleteAsync(string instruction, string input, CancellationToken cancellation)
+        { Inputs.Add(input); Instructions.Add(instruction); return Task.FromResult(queue.Dequeue()); }
+    }
+    private sealed class Search(string path, string? more = null) : IDocumentSearch
+    {
+        public bool HasStrongMatch(string query) => RetrievalText.HasStrongMatch(query, [new(path, "Support", "Call 4321")]);
+        public bool Searched;
+        public string? ReadPath;
+        public Task RefreshAsync(bool force, IProgress<string>? progress, CancellationToken cancellation) => Task.CompletedTask;
+        public Task<List<Passage>> SearchAsync(string query, CancellationToken cancellation)
+        { Searched = true; return Task.FromResult(new List<Passage> { new(path, "Support", "Call 4321") }); }
+        public Task<List<Passage>> ReadAsync(string selected, CancellationToken cancellation)
+        {
+            ReadPath = selected;
+            List<Passage> read = [new(path, "Support", "Call 4321")];
+            if (more != null) read.Add(new(path, "End", more));
+            return Task.FromResult(read);
+        }
+    }
+}
