@@ -14,6 +14,9 @@ public interface IDocumentSearch
     bool CanRead(string path) => Access.CanRead(path);
     bool HasStrongMatch(string query) => false;
     Task RefreshAsync(bool force, IProgress<string>? progress, CancellationToken cancellation); Task<List<Passage>> SearchAsync(string query, CancellationToken cancellation);
+    /// <summary>Search with explicit evidence limits. <paramref name="thorough"/> also adds relaxed (partial-coverage) matches
+    /// after the strict ones and allows more passages per file; used by the deep answer mode.</summary>
+    Task<List<Passage>> SearchAsync(string query, DocumentOptions limits, bool thorough, CancellationToken cancellation) => SearchAsync(query, cancellation);
     Task<List<string>> ListAsync(CancellationToken cancellation) => Task.FromResult(new List<string>());
     Task<List<Passage>> ReadAsync(string path, CancellationToken cancellation) => Task.FromResult(new List<Passage>());
     Task<List<Passage>> ReadAsync(string path, string query, CancellationToken cancellation) => ReadAsync(path, cancellation);
@@ -207,7 +210,8 @@ public sealed class DocumentIndex : IDocumentSearch
             else yield return entry;
         }
     }
-    public Task<List<Passage>> SearchAsync(string query, CancellationToken cancellation) => Task.Run(() =>
+    public Task<List<Passage>> SearchAsync(string query, CancellationToken cancellation) => SearchAsync(query, config.Documents, false, cancellation);
+    public Task<List<Passage>> SearchAsync(string query, DocumentOptions limits, bool thorough, CancellationToken cancellation) => Task.Run(() =>
     {
         var current = Volatile.Read(ref snapshot);
         var access = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
@@ -226,14 +230,14 @@ public sealed class DocumentIndex : IDocumentSearch
             {
                 cancellation.ThrowIfCancellationRequested();
                 if (!access.TryGetValue(passage.Path, out var readable)) access[passage.Path] = readable = IsCurrent(current, passage.Path);
-                if (!readable || perFile.GetValueOrDefault(passage.Path) >= 3) continue;
+                if (!readable || perFile.GetValueOrDefault(passage.Path) >= (thorough ? 5 : 3) || (!strict && candidates.Contains(passage))) continue;
                 candidates.Add(passage);
                 perFile[passage.Path] = perFile.GetValueOrDefault(passage.Path) + 1;
-                if (candidates.Count >= config.Documents.MaxPassages * 4) break;
+                if (candidates.Count >= limits.MaxPassages * 4) break;
             }
-            if (candidates.Count > 0) break;
+            if (candidates.Count >= (thorough ? limits.MaxPassages * 4 : 1)) break;
         }
-        return RetrievalText.Budget(candidates, query, config.Documents);
+        return RetrievalText.Budget(candidates, query, limits);
     }, cancellation);
 
     public Task<List<string>> ListAsync(CancellationToken cancellation) => Task.Run(() =>

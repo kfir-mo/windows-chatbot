@@ -130,7 +130,8 @@ instruction-tuned models of roughly 7B parameters or more.
 `RequestsPerMinute` is a budget shared by all models for one Windows user, persisted across restarts. It counts
 every AI call (calls are not spaced out — Chaty waits only when the last minute's budget is full): one question in a
 document assistant normally uses **3 calls** (route the request, draft the
-answer, review the answer); general chat uses 1; the connection test uses 1. When the budget is used up Chaty
+answer, review the answer); with the "חיפוש מהיר" tag **1 call**; with "חיפוש מעמיק" **4 calls**; general chat uses 1;
+the connection test uses 1. When the budget is used up Chaty
 waits and shows "ממתין למכסת ה־API". An HTTP 429 from the server pauses for at least 61 seconds (or the server's
 `Retry-After`). Keep it below the provider's real limit. For an internal server without limits use e.g. 120–600.
 
@@ -146,6 +147,19 @@ waits and shows "ממתין למכסת ה־API". An HTTP 429 from the server pau
    answer. No valid citation → "not enough information". AI failure → raw excerpts, clearly labelled.
 5. Access is re-checked (`Access.CanRead`) before excerpts are sent and before sources are shown.
    `ChatEngine.AnswerLanguage` tells the AI which language to answer in (from the question's script).
+
+**Answer modes** (`AnswerMode` in `ChatEngine.cs`, tags under the composer in `MainWindow.xaml`; at most one tag is
+on, none = regular). `ChatEngine.Limits` sets the evidence limits for each mode.
+- *Quick* ("חיפוש מהיר"): no AI routing and no review. Searches the index directly with the question, sends ≤3 passages /
+  2,000 characters and ≤4 history messages, and gets a short answer plus the source file. About 80% fewer tokens.
+- *Regular*: the pipeline above, reviewer always on.
+- *Deep* ("חיפוש מעמיק"): always searches, even if routing says "reply". `RequestPlanner.ExpandAsync` adds up to 4 more
+  queries (synonyms, Hebrew/English terms), and the index's thorough search adds relaxed matches. The results are
+  interleaved. Sends up to 16 passages / 14,000 characters (whole chunks), and the reviewer is on.
+- Answers with no supporting evidence get `ChatMessage.NotFound`. The UI then shows "לא נמצא? נסו שוב בחיפוש מעמיק", which
+  asks the same question again in deep mode.
+- `AnswerShape` in `ChatEngine.cs` sets the answer layout: how-to questions get the full numbered procedure in the chat;
+  factual questions get the direct answer first.
 
 **AI prompts** (English, answers in the user's language): `ChatEngine.cs` (general chat prompt, answer +
 review prompt), `RequestPlanner.cs` (routing), `Configuration.cs` (`AnswerPrompt`). Per-deployment additions go
@@ -214,7 +228,8 @@ If `dotnet` is not on PATH, use `& "$env:USERPROFILE\.dotnet\dotnet.exe"`.
 
 1. **Hebrew, right-to-left UI.** Keep `FlowDirection` handling; new text in Hebrew; test that mixed Hebrew/English
    text still renders correctly. In right-to-left containers `HorizontalAlignment.Left` is the visual right.
-2. **Answers only from evidence** for document assistants; keep citations, the reviewer call, and the access
+2. **Answers only from evidence** for document assistants; keep citations, the reviewer call (regular and deep modes;
+   quick mode skips it on purpose), and the access
    re-checks (`Access.CanRead`, `RedactInaccessible`) in `ChatEngine`.
 3. **No secrets in files or logs.** Keys stay DPAPI-encrypted in the user profile; never print response bodies
    (they can echo credentials); never write keys into `ai.config.json`.
