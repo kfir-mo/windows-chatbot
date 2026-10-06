@@ -91,6 +91,48 @@ public sealed class AnswerFlowTests
         finally { File.Delete(path); }
     }
 
+    [Fact]
+    public async Task QuickModeMakesOneShortAnswerCallWithoutRoutingOrReview()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            var ai = new QueueAi("""{"answer":"Call 4321","citations":[1]}""");
+            var search = new Search(path);
+            var answer = await new ChatEngine(new(), ai, search).AskAsync("How do I reset my password?", new(), null, default, AnswerMode.Quick);
+            Assert.Equal("Call 4321", answer.Text); Assert.Single(answer.Sources);
+            Assert.Single(ai.Inputs); Assert.Contains("QUICK MODE", ai.Instructions.Single());
+            Assert.True(search.Searched);
+        }
+        finally { File.Delete(path); }
+    }
+    [Fact]
+    public async Task DeepModeSearchesEvenAfterReplyPlanAndSearchesExpandedQueries()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            var ai = new QueueAi("""{"action":"reply","reply":"generic"}""", """{"queries":["password reset","איפוס סיסמה"]}""",
+                """{"answer":"Call 4321","citations":[1]}""", """{"answer":"Call 4321","citations":[1]}""");
+            var search = new Search(path);
+            var answer = await new ChatEngine(new(), ai, search).AskAsync("I forgot it", new(), null, default, AnswerMode.Deep);
+            Assert.Equal("Call 4321", answer.Text); Assert.Single(answer.Sources);
+            Assert.Equal(4, ai.Inputs.Count); // plan, expand, answer, review
+            Assert.Equal(3, search.Queries.Count); Assert.Contains("איפוס סיסמה", search.Queries);
+            Assert.Contains("THOROUGH MODE", ai.Instructions[2]);
+        }
+        finally { File.Delete(path); }
+    }
+    [Fact]
+    public void UnsupportedAnswerIsMarkedNotFoundForDeepRetry()
+    {
+        Assert.True(ChatEngine.Attribute("x", [], [new("a", "b", "c")], _ => true).NotFound);
+        Assert.False(ChatEngine.Attribute("x", [1], [new("a", "b", "c")], _ => true).NotFound);
+        var quick = ChatEngine.Limits(new(), AnswerMode.Quick); var deep = ChatEngine.Limits(new(), AnswerMode.Deep);
+        Assert.True(quick.EvidenceCharacters < new DocumentOptions().EvidenceCharacters && deep.EvidenceCharacters > new DocumentOptions().EvidenceCharacters);
+        Assert.True(deep.MaxPassages <= 30 && deep.ExcerptCharacters <= 4000);
+    }
+
     private sealed class QueueAi(params string[] responses) : IAiClient
     {
         private readonly Queue<string> queue = new(responses);
@@ -103,10 +145,11 @@ public sealed class AnswerFlowTests
     {
         public bool HasStrongMatch(string query) => RetrievalText.HasStrongMatch(query, [new(path, "Support", "Call 4321")]);
         public bool Searched;
+        public List<string> Queries = [];
         public string? ReadPath;
         public Task RefreshAsync(bool force, IProgress<string>? progress, CancellationToken cancellation) => Task.CompletedTask;
         public Task<List<Passage>> SearchAsync(string query, CancellationToken cancellation)
-        { Searched = true; return Task.FromResult(new List<Passage> { new(path, "Support", "Call 4321") }); }
+        { Searched = true; Queries.Add(query); return Task.FromResult(new List<Passage> { new(path, "Support", "Call 4321") }); }
         public Task<List<Passage>> ReadAsync(string selected, CancellationToken cancellation)
         { ReadPath = selected; return Task.FromResult(new List<Passage> { new(path, "Support", "Call 4321") }); }
     }

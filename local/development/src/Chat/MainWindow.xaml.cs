@@ -323,14 +323,47 @@ public partial class MainWindow : Window
             Status.Text = $"השאלה ארוכה מדי (עד {config.History.MessageCharacters} תווים).";
             return;
         }
+        Question.Clear();
+        await AnswerAsync(q, answerMode, false);
+    }
+    /// <summary>Selected answer mode: Quick or Deep tag, or Regular when neither tag is on.</summary>
+    private AnswerMode answerMode = AnswerMode.Regular;
+    /// <summary>The last answer produced in deep mode; a deep "not found" answer offers no further deep retry.</summary>
+    private ChatMessage? deepAnswer;
+    private void ToggleMode(object s, RoutedEventArgs e)
+    {
+        var mode = Enum.Parse<AnswerMode>((string)((Button)s).Tag);
+        answerMode = answerMode == mode ? AnswerMode.Regular : mode;
+        ShowMode();
+    }
+    private void ShowMode()
+    {
+        foreach (var (button, mode) in new[] { (QuickModeButton, AnswerMode.Quick), (DeepModeButton, AnswerMode.Deep) })
+        {
+            var on = answerMode == mode;
+            button.Background = Theme.Brush(on ? "Selected" : "Surface");
+            button.BorderBrush = Theme.Brush(on ? "Accent" : "Line");
+            button.Foreground = Theme.Brush(on ? "Accent" : "Muted");
+            button.FontWeight = on ? FontWeights.SemiBold : FontWeights.Normal;
+        }
+    }
+    /// <summary>Asks again, in deep mode, the question whose answer found nothing.</summary>
+    private async void RetryDeep(object s, RoutedEventArgs e)
+    {
+        if (!loggedIn || request != null || switchingType || indexing || current.Messages.Count < 2 || current.Messages[^1] is not { Role: "assistant", NotFound: true } || current.Messages[^2].Role != "user") return;
+        current.Messages.RemoveAt(current.Messages.Count - 1);
+        await AnswerAsync(current.Messages[^1].Text, AnswerMode.Deep, true);
+    }
+    private async Task AnswerAsync(string q, AnswerMode mode, bool retry)
+    {
         request = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
-        request.CancelAfter(TimeSpan.FromSeconds(config.Ai.TimeoutSeconds * 4 + 30));
+        // Deep mode makes more AI calls (planning, extra queries, answer, review).
+        request.CancelAfter(TimeSpan.FromSeconds(config.Ai.TimeoutSeconds * (mode == AnswerMode.Deep ? 6 : 4) + 30));
         SendButton.IsEnabled = false;
         HistoryTab.IsEnabled = NewChatButton.IsEnabled = false;
         CancelButton.Visibility = Visibility.Visible;
-        Question.Clear();
         current.ChatTypeName = chatTypes.First(t => t.Id == activeTypeId).Name;
-        current.Messages.Add(new("user", q, DateTimeOffset.Now, []));
+        if (!retry) current.Messages.Add(new("user", q, DateTimeOffset.Now, []));
         if (!conversations.Any(c => c.Id == current.Id)) conversations.Add(current);
         try
         {
@@ -351,14 +384,15 @@ public partial class MainWindow : Window
             {
                 using var ai = new AiClient(activeConfig);
                 ai.WaitingForRateLimit = delay => progress.Report($"ממתין למכסת ה־API · כ־{Math.Ceiling(delay.TotalSeconds)} שניות…");
-                answer = await new ChatEngine(activeConfig, ai, index).AskAsync(q, current, progress, request.Token);
+                answer = await new ChatEngine(activeConfig, ai, index).AskAsync(q, current, progress, request.Token, mode);
+                if (mode == AnswerMode.Deep) deepAnswer = answer;
             }
             else answer = await AskServerAsync(q, request.Token);
             Typing.Visibility = Visibility.Collapsed;
             current.Messages.Add(answer);
             Save();
             await RenderAsync();
-            if (Status.Text.StartsWith("ממתין למכסת ה־API") || Status.Text is "מבין את הבקשה…" or "מכין תשובה…" or "מחפש מידע במסמכים…" or "בודק שהתשובה מתאימה לבקשה…")
+            if (Status.Text.StartsWith("ממתין למכסת ה־API") || Status.Text is "מבין את הבקשה…" or "מכין תשובה…" or "מחפש מידע במסמכים…" or "מחפש לעומק בכל המסמכים…" or "מרחיב את החיפוש במונחים נוספים…" or "בודק שהתשובה מתאימה לבקשה…")
                 Status.Text = activeConfig.GeneralChat ? "שיחה חופשית עם AI" : "מוכן";
         }
         catch (OperationCanceledException) { Status.Text = "הבקשה בוטלה או עברה את הזמן המותר."; }
@@ -424,6 +458,18 @@ public partial class MainWindow : Window
                 movement.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(8, 0, TimeSpan.FromMilliseconds(180)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
             }
         }
+        if (BuildMode.Local && current.Messages.LastOrDefault() is { Role: "assistant", NotFound: true } last && last != deepAnswer && activeConfig?.GeneralChat == false)
+        {
+            var retry = new Button { Style = (Style)FindResource("ModeTag"), HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 0, 48, 10), ToolTip = "חיפוש יסודי בכל מסמכי העוזר, גם במילים נרדפות" };
+            var label = new StackPanel { Orientation = Orientation.Horizontal };
+            label.Children.Add(new TextBlock { Text = "", FontFamily = (FontFamily)FindResource("IconFont"), FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 5, 0) });
+            label.Children.Add(new TextBlock { Text = "לא נמצא? נסו שוב בחיפוש מעמיק", VerticalAlignment = VerticalAlignment.Center });
+            retry.Content = label;
+            retry.Foreground = Theme.Brush("Accent"); retry.BorderBrush = Theme.Brush("Accent");
+            System.Windows.Automation.AutomationProperties.SetName(retry, "נסו שוב בחיפוש מעמיק");
+            retry.Click += RetryDeep;
+            Messages.Children.Add(retry);
+        }
         Scroll.UpdateLayout();
         Scroll.ScrollToEnd();
     }
@@ -451,6 +497,8 @@ public partial class MainWindow : Window
                 Suggestions.Children.Add(button);
             }
         Suggestions.Visibility = Suggestions.Children.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        ModeBar.Visibility = BuildMode.Local && documents ? Visibility.Visible : Visibility.Collapsed;
+        ShowMode();
     }
     /// <summary>Each chat type has its own color, icon and landing page so users can tell at a glance where they are.</summary>
     public sealed record TypeLook(string Color, string Glyph);

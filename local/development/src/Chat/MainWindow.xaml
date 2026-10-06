@@ -8,6 +8,11 @@
    <Setter Property="FontSize" Value="12"/><Setter Property="Padding" Value="10,5"/><Setter Property="Margin" Value="0,0,6,6"/><Setter Property="MinHeight" Value="0"/>
    <Setter Property="local:Ui.CornerRadius" Value="14"/><Setter Property="local:Ui.HoverBrush" Value="#141F6FFF"/>
   </Style>
+  <Style x:Key="ModeTag" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+   <Setter Property="Background" Value="{DynamicResource Surface}"/><Setter Property="BorderBrush" Value="{DynamicResource Line}"/><Setter Property="BorderThickness" Value="1"/><Setter Property="Foreground" Value="{DynamicResource Muted}"/>
+   <Setter Property="FontSize" Value="11.5"/><Setter Property="Padding" Value="9,3"/><Setter Property="Margin" Value="0,0,6,0"/><Setter Property="MinHeight" Value="0"/>
+   <Setter Property="local:Ui.CornerRadius" Value="11"/><Setter Property="local:Ui.HoverBrush" Value="#141F6FFF"/><Setter Property="Cursor" Value="Hand"/>
+  </Style>
   <Style x:Key="SendButton" TargetType="Button" BasedOn="{StaticResource IconButton}">
    <Setter Property="Width" Value="32"/><Setter Property="Height" Value="32"/><Setter Property="FontSize" Value="13"/><Setter Property="local:Ui.CornerRadius" Value="16"/>
    <Setter Property="Background" Value="{DynamicResource Accent}"/><Setter Property="Foreground" Value="White"/><Setter Property="local:Ui.HoverBrush" Value="#1F000000"/>
@@ -44,7 +49,7 @@
     <Border Grid.Row="1" CornerRadius="0,0,18,18" Background="{DynamicResource Canvas}">
      <Grid>
       <Grid x:Name="ChatPage">
-       <Grid.RowDefinitions><RowDefinition/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+       <Grid.RowDefinitions><RowDefinition/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
        <ScrollViewer x:Name="Scroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="12,8,8,4">
         <StackPanel>
          <!-- Each chat type gets its own landing page: color, icon, name, kind and sources. -->
@@ -84,7 +89,16 @@
          </Grid>
         </Grid>
        </Border>
-       <TextBlock Grid.Row="3" FlowDirection="RightToLeft" Text="גם Chaty עלול לטעות. כדאי לבדוק מידע חשוב במקורות." FontSize="10.5" Foreground="{DynamicResource Muted}" HorizontalAlignment="Center" Margin="12,5,12,8" Opacity="0.85"/>
+       <!-- Answer mode: at most one tag is on; none = regular search. -->
+       <StackPanel x:Name="ModeBar" Grid.Row="3" Orientation="Horizontal" Margin="12,6,12,0" AutomationProperties.Name="סוג החיפוש">
+        <Button x:Name="QuickModeButton" Style="{StaticResource ModeTag}" Click="ToggleMode" Tag="Quick" ToolTip="תשובה קצרה עם הקובץ הרלוונטי · מהיר וחוסך בשימוש ב־AI" AutomationProperties.Name="חיפוש מהיר">
+         <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE945;" FontFamily="{StaticResource IconFont}" FontSize="11" VerticalAlignment="Center" Margin="0,0,5,0"/><TextBlock Text="חיפוש מהיר" VerticalAlignment="Center"/></StackPanel>
+        </Button>
+        <Button x:Name="DeepModeButton" Style="{StaticResource ModeTag}" Click="ToggleMode" Tag="Deep" ToolTip="חיפוש יסודי בכל מסמכי העוזר, גם במילים נרדפות · איטי יותר ומשתמש ביותר AI" AutomationProperties.Name="חיפוש מעמיק">
+         <StackPanel Orientation="Horizontal"><TextBlock Text="&#xE721;" FontFamily="{StaticResource IconFont}" FontSize="11" VerticalAlignment="Center" Margin="0,0,5,0"/><TextBlock Text="חיפוש מעמיק" VerticalAlignment="Center"/></StackPanel>
+        </Button>
+       </StackPanel>
+       <TextBlock Grid.Row="4" FlowDirection="RightToLeft" Text="גם Chaty עלול לטעות. כדאי לבדוק מידע חשוב במקורות." FontSize="10.5" Foreground="{DynamicResource Muted}" HorizontalAlignment="Center" Margin="12,4,12,8" Opacity="0.85"/>
       </Grid>
       <local:HistoryPage x:Name="HistoryView" Visibility="Collapsed"/>
      </Grid>

@@ -55,7 +55,8 @@ public static class Storage
     }
 }
 public record Source(string Path, string Location);
-public record ChatMessage(string Role, string Text, DateTimeOffset Time, List<Source> Sources);
+/// <summary>NotFound marks an answer without supporting evidence, so the UI can offer a deep-search retry.</summary>
+public record ChatMessage(string Role, string Text, DateTimeOffset Time, List<Source> Sources, bool NotFound = false);
 public sealed class Conversation
 {
     public string ChatTypeId { get; set; } = "default";
