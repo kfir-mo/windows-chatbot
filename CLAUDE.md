@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What this is
 
-A Hebrew-first (RTL) Windows desktop chatbot that answers employee questions from organizational documents (DOCX, PPTX, text PDFs, XLSX, TXT, Markdown) using an OpenAI-compatible AI endpoint. .NET 8 (`net8.0-windows`), WPF desktop client, ASP.NET Core server. Not a git repository.
+A Hebrew-first (RTL) Windows desktop chatbot that answers employee questions from organizational documents (DOCX, PPTX, text PDFs, XLSX, TXT, Markdown) using an OpenAI-compatible AI endpoint. .NET 8 (`net8.0-windows`), WPF desktop client, ASP.NET Core server.
 
 ## Two independent editions — duplicated source
 
@@ -21,6 +21,16 @@ local/              standalone personal edition "Chaty" (no server, no AD) — s
 Each edition is meant to be copied/moved independently, so `local/development/src` started as a **full copy** of `advance/development/src`. Both have since diverged: the local `Chat` UI was redesigned (`App.xaml` styles, `MessageView.cs`, `Ui.cs`, `MemoryTrim.cs`, software rendering, no WinForms tray), and the local `Knowledge.Core` has a compact index (`PassageCatalog` array postings, `index7-*.bin` compressed cache, parallel extraction, CSV/HTML, PPTX notes, encoding detection, relaxed search fallback), explicit answer language, and per-model `Authentication`/`MaxTokensField`/`SendStoreFalse`/`Temperature` plus `Documents`/`History` limits in `ai.config.json` (RequestsPerMinute up to 600). A fix to shared logic must be applied to both copies unless it's intentionally edition-specific. Neither edition may reference the other's folder.
 
 `advance/client`, `advance/server`, and `local/*.exe|*.json` are publish outputs plus live configuration/data — don't hand-edit binaries, and treat `server/.env`, `settings.json`, `data/`, `logs/` as real installation state.
+
+## Git, CI and cloud sessions
+
+The project is on GitHub. Build outputs (`*.exe`, `advance/server/app/`), the offline NuGet bundle
+(`local/development/packages/`) and live installation state (`.env`, `advance/server/settings.json`, `data/`, `logs/`)
+are git-ignored — never commit them. `.github/workflows/tests.yml` runs both editions' tests on `windows-latest`.
+
+In a Linux environment (e.g. a Claude Code cloud session) `dotnet build` works because of `EnableWindowsTargeting`, but
+the WPF apps can't run and tests that touch `Storage` (DPAPI) fail with `PlatformNotSupportedException`. Pure logic
+tests (retrieval, document formats, planner) can be run with `--filter`; rely on the Windows CI for the full suite.
 
 ## Commands
 
