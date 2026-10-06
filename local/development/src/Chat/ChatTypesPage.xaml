@@ -1,0 +1,38 @@
+<Window x:Class="Chat.ChatTypesPage" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="clr-namespace:Chat"
+ Title="הגדרת סוג צ׳אט" Width="480" SizeToContent="Height" MaxHeight="680" WindowStartupLocation="CenterOwner" WindowStyle="None" AllowsTransparency="True" Background="Transparent" ResizeMode="NoResize" ShowInTaskbar="False" FlowDirection="RightToLeft" FontFamily="Segoe UI" Foreground="{DynamicResource Ink}" PreviewKeyDown="DialogKeyDown">
+ <Window.Resources>
+  <Style TargetType="TextBox"><Setter Property="FontSize" Value="13.5"/><Setter Property="Padding" Value="10,4"/><Setter Property="Foreground" Value="{DynamicResource Ink}"/><Setter Property="BorderBrush" Value="{DynamicResource Line}"/><Setter Property="BorderThickness" Value="1.5"/><Setter Property="SelectionBrush" Value="{DynamicResource Accent}"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/><Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TextBox"><Border x:Name="Box" Background="{DynamicResource Surface}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="11"><ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/></Border><ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Box" Property="BorderBrush" Value="#B9CBE6"/></Trigger><Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Accent}"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter></Style>
+  <Style x:Key="FieldLabel" TargetType="TextBlock"><Setter Property="FontSize" Value="13"/><Setter Property="FontWeight" Value="SemiBold"/><Setter Property="Margin" Value="0,0,0,6"/></Style>
+  <Style x:Key="Hint" TargetType="TextBlock"><Setter Property="FontSize" Value="12"/><Setter Property="Foreground" Value="{DynamicResource Muted}"/><Setter Property="TextWrapping" Value="Wrap"/></Style>
+ </Window.Resources>
+ <Border Margin="12,8,12,20" Background="{DynamicResource Surface}" CornerRadius="20" BorderBrush="{DynamicResource Line}" BorderThickness="1" Padding="20,16,20,18">
+  <Border.Effect><DropShadowEffect BlurRadius="24" ShadowDepth="6" Direction="270" Opacity="0.2" Color="#0B2A55"/></Border.Effect>
+  <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+   <Grid Margin="0,0,0,16"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+    <Border Width="38" Height="38" CornerRadius="12" Background="{DynamicResource Selected}" Margin="0,0,10,0"><TextBlock Text="&#xE8BD;" FontFamily="{StaticResource IconFont}" FontSize="16" Foreground="{DynamicResource Accent}" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
+    <TextBlock x:Name="Heading" Grid.Column="1" Text="סוג צ׳אט חדש" FontSize="19" FontWeight="SemiBold" VerticalAlignment="Center"/>
+    <Button Grid.Column="2" Style="{StaticResource IconButton}" Content="&#xE711;" FontSize="13" AutomationProperties.Name="סגירה" Click="Dismiss" ToolTip="סגירה"/>
+   </Grid>
+   <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Padding="0,0,4,0"><StackPanel x:Name="Fields">
+    <TextBlock Text="שם העוזר *" Style="{StaticResource FieldLabel}"/>
+    <TextBox x:Name="TypeName" Height="44" MaxLength="60" Margin="0,0,0,20" VerticalContentAlignment="Center" TextChanged="NameChanged"/>
+    <TextBlock Text="תיקיות מסמכים · אופציונלי" Style="{StaticResource FieldLabel}" Margin="0,0,0,2"/>
+    <TextBlock Text="הוסיפו תיקייה מקומית או נתיב רשת. העוזר יענה מתוך המסמכים שבהן." Style="{StaticResource Hint}" Margin="0,0,0,10"/>
+    <StackPanel x:Name="PathRows"/><TextBlock x:Name="PathHint" Text="ללא נתיב, העוזר יענה ללא מסמכים." Style="{StaticResource Hint}" Margin="0,0,0,4"/>
+    <Button Content="+  הוספת נתיב נוסף" Style="{StaticResource LinkButton}" HorizontalAlignment="Left" Margin="-8,0,0,16" Click="AddPath"/>
+    <TextBlock Text="הנחיות ל־AI · אופציונלי" Style="{StaticResource FieldLabel}" Margin="0,0,0,2"/><TextBlock Text="לדוגמה: ענה בקצרה ושמור שמות פקודות באנגלית." Style="{StaticResource Hint}" Margin="0,0,0,8"/>
+    <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="12"/></Grid.RowDefinitions><TextBox x:Name="CustomPrompt" Height="100" AcceptsReturn="True" TextWrapping="Wrap" MaxLength="6000" VerticalScrollBarVisibility="Auto" Padding="10,8" Margin="0"/>
+     <Thumb Grid.Row="1" Cursor="SizeNS" DragDelta="ResizePrompt" ToolTip="גררו לשינוי גובה ההנחיות" AutomationProperties.Name="שינוי גובה ההנחיות"><Thumb.Template><ControlTemplate TargetType="Thumb"><Border Background="Transparent"><Border Width="40" Height="4" CornerRadius="2" Background="{DynamicResource Line}" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border></ControlTemplate></Thumb.Template></Thumb>
+    </Grid>
+    <Button x:Name="DeleteButton" Style="{StaticResource GhostButton}" HorizontalAlignment="Left" Foreground="{DynamicResource Danger}" local:Ui.HoverBrush="#14C2364A" Padding="10,6" Margin="0,10,0,0" Click="DeleteType"><StackPanel Orientation="Horizontal"><TextBlock FontFamily="{StaticResource IconFont}" Text="&#xE74D;" VerticalAlignment="Center" Margin="0,0,8,0"/><TextBlock Text="מחיקת העוזר"/></StackPanel></Button>
+   </StackPanel></ScrollViewer>
+   <StackPanel Grid.Row="2" Margin="0,16,0,0">
+    <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="2*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+     <Button x:Name="CheckButton" Style="{StaticResource PrimaryButton}" Content="יצירת עוזר" Click="Save"/>
+     <Button Grid.Column="1" Style="{StaticResource GhostButton}" Content="ביטול" MinHeight="44" Margin="8,0,0,0" Click="Dismiss"/>
+    </Grid>
+    <TextBlock x:Name="Feedback" TextWrapping="Wrap" Foreground="{DynamicResource Danger}" FontSize="12" Margin="0,10,0,0" AutomationProperties.LiveSetting="Polite"/>
+   </StackPanel>
+  </Grid>
+ </Border>
+</Window>

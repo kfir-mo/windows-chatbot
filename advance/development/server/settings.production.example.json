@@ -1,0 +1,32 @@
+{
+  "Url": "https://chat.company.local:5187",
+  "LocalDevelopment": false,
+  "CertificatePath": "",
+  "AiGroups": [
+    "DOMAIN\\Chat-AI-Users"
+  ],
+  "AdminGroups": [
+    "DOMAIN\\Chat-Admins"
+  ],
+  "PersonalGroups": [
+    "DOMAIN\\Chat-Personal"
+  ],
+  "Assistants": [
+    {
+      "Id": "technical-support",
+      "Name": "תמיכה טכנית",
+      "Project": "שירותי הארגון",
+      "Category": "מחשוב",
+      "Prompt": "סכם הנחיות מעשיות מתוך התיעוד שסופק.",
+      "Paths": [
+        "\\\\fileserver\\documentation\\IT"
+      ],
+      "Groups": [
+        "DOMAIN\\Chat-IT-Readers"
+      ],
+      "Enabled": true
+    }
+  ],
+  "LogDirectory": "",
+  "TimeZoneId": "Israel Standard Time"
+}

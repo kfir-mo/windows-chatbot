@@ -1,0 +1,21 @@
+{
+  "RequestsPerMinute": 18,
+  "SearchSubfolders": true,
+  "Documents": { "ChunkCharacters": 1800, "MaxFileMegabytes": 50, "MaxPassages": 8, "EvidenceCharacters": 4800, "ExcerptCharacters": 1000 },
+  "History": { "RecentMessages": 8, "SummaryCharacters": 2000, "MessageCharacters": 6000, "ContextCharacters": 2000 },
+  "Models": [
+    {
+      "SystemPrompt": "",
+      "Model": "gpt-4o-mini",
+      "Endpoint": "https://api.openai.com/v1/chat/completions",
+      "AllowedHosts": ["api.openai.com"],
+      "Format": "chat-completions",
+      "Authentication": "bearer",
+      "AllowHttp": false,
+      "TimeoutSeconds": 60,
+      "MaxOutputTokens": 1600,
+      "InputTokensPath": "usage.prompt_tokens",
+      "OutputTokensPath": "usage.completion_tokens"
+    }
+  ]
+}

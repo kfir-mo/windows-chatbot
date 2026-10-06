@@ -1,0 +1,9 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+ <PropertyGroup><AssemblyName>WindowsChat.Server</AssemblyName></PropertyGroup>
+ <ItemGroup><ProjectReference Include="../src/Knowledge.Core/Knowledge.Core.csproj"/><PackageReference Include="Microsoft.AspNetCore.Authentication.Negotiate" Version="8.0.31"/><PackageReference Include="ClosedXML" Version="0.104.2"/><PackageReference Include="Microsoft.Data.Sqlite" Version="8.0.31"/></ItemGroup>
+ <ItemGroup><Compile Remove="app/**"/><Content Remove="app/**;logs/**;data/**;.env;settings.json;settings.production.example.json;config.json"/><None Remove="app/**;logs/**;data/**;.env"/></ItemGroup>
+ <ItemGroup><Content Update="wwwroot/**" CopyToOutputDirectory="PreserveNewest"/></ItemGroup>
+</Project>
+
+
+
