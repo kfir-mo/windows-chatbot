@@ -1,4 +1,0 @@
-<Project Sdk="Microsoft.NET.Sdk">
- <PropertyGroup><OutputType>Exe</OutputType><UseWPF>true</UseWPF><ImplicitUsings>disable</ImplicitUsings></PropertyGroup>
- <ItemGroup><ProjectReference Include="../../src/Chat.Local/Chat.Local.csproj"/></ItemGroup>
-</Project>

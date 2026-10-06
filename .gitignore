@@ -5,21 +5,17 @@ obj/
 *.user
 TestResults/
 
-# Published apps (rebuilt by the publish scripts)
-local/Chaty.exe
-advance/client/Chat.exe
-advance/server/app/
+# The published app (rebuilt by development/scripts/publish-local.ps1)
+Chaty.exe
 
-# Offline NuGet bundle (recreate with local/development/scripts/prepare-offline.ps1)
-local/development/packages/
+# Offline NuGet bundle (recreate with development/scripts/prepare-offline.ps1)
+development/packages/
 
-# Secrets and live installation state
+# The server-managed edition now lives on the advance-edition branch; a leftover local copy must never be committed.
+advance/
+
+# Secrets
 .env
 !.env.example
-!.env.*.example
-advance/server/settings.json
-advance/server/data/
-advance/server/logs/
-advance/server/*.log
 *.pfx
 *.db
