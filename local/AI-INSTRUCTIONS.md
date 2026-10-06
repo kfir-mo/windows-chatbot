@@ -41,8 +41,7 @@ local/
     tests/Chat.Smoke      UI smoke test (console app)
 ```
 
-`src/Chat/Chat.csproj` belongs to the server-managed edition (not shipped from this folder); always build
-`src/Chat.Local/Chat.Local.csproj`.
+`src/Chat` has no project file of its own; always build `src/Chat.Local/Chat.Local.csproj`.
 
 Per-user data is **not** in this folder. It lives in `%LOCALAPPDATA%\WindowsChat.Local\`, encrypted with Windows
 DPAPI for the current user: `local-settings.bin` (chosen model), `ai-key-*.bin` (API keys), `chat-types.bin`
