@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace Knowledge.Core;
 
 // Deployment configuration, deliberately separate from user preferences and credentials.
-// Everything an administrator may tune lives in ai.config.json beside Chaty.exe; see development/AI-INSTRUCTIONS.md.
+// The models come from %APPDATA%\config.json (AiConfigFile); see AI-INSTRUCTIONS.md.
 public sealed class LocalAiCatalog
 {
     public bool SearchSubfolders { get; set; } = true;

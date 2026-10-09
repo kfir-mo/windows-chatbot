@@ -11,7 +11,7 @@ the models; keys are typed in the app), the code map, building and testing (also
 
 ```
 Chaty.exe            published app (git-ignored; rebuilt by development/scripts/publish-local.ps1)
-AI-INSTRUCTIONS.md   full guide for AI maintainers · DESIGN-REVIEW.md: deliberate UI decisions
+AI-INSTRUCTIONS.md   full guide for AI maintainers
 development/
   src/Knowledge.Core   all logic: AI client, configuration, indexing, search, answer pipeline
   src/Chat             the WPF UI sources (XAML + C#), compiled by src/Chat.Local
