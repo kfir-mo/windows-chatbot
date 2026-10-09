@@ -24,13 +24,14 @@ public partial class MainWindow
         ExpandPanel(this, new());
         // Every start opens a new, empty general chat; earlier conversations are in the history.
         await ActivateTypeAsync(ChatType.GeneralId, false);
-        _ = PreloadAssistantsAsync();
-        if (Storage.Load<Config>("local-settings.bin") == null) await OpenLocalSettingsAsync();
+        RemoveUnusedIndexes();
+        // First run, or a PC that got only Chaty.exe: open the AI settings, where the endpoint JSON is pasted.
+        if (Storage.Load<Config>("local-settings.bin") == null || LocalAiCatalog.Load().Models.Count == 0) await OpenLocalSettingsAsync();
         MemoryTrim.Schedule(Dispatcher, IdleTrimSeconds);
     }
     private async Task OpenLocalSettingsAsync()
     {
-        if (request != null || indexing || switchingType) { Status.Text = "המתינו לסיום הפעולה הנוכחית."; return; }
+        if (request != null) { Notice("המתינו לסיום הפעולה הנוכחית.", false); return; }
         if (ScreenHost.Content is LocalSettingsPanel) return;
         LocalSettingsPanel? dialog = null;
         try
@@ -51,7 +52,7 @@ public partial class MainWindow
                 await RenderAsync();
             }
         }
-        catch (Exception ex) { Status.Text = "בדקו את ai.config.json: " + ex.Message; }
+        catch (Exception ex) { Notice("לא ניתן לפתוח את הגדרות ה־AI: " + ex.Message); }
         finally { if (dialog != null) CloseScreen(dialog); }
     }
 }

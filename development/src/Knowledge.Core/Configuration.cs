@@ -30,7 +30,7 @@ public sealed class Config
             throw new InvalidDataException("כתובת AI אינה מורשית בהגדרות");
         if (Ai.Format is not ("chat-completions" or "responses") || Ai.Authentication is not ("bearer" or "header" or "windows" or "none") || Ai.MaxTokensField is not ("" or "max_tokens" or "max_completion_tokens" or "max_output_tokens" or "none") || Ai.Temperature is < 0 or > 2)
             throw new InvalidDataException("פורמט API או אימות לא נתמך");
-        if (Ai.TimeoutSeconds is < 1 or > 600 || Ai.MaxOutputTokens is < 1 or > 16000 || Documents.IntervalMinutes is < 1 or > 1440 || Documents.ChunkCharacters is < 200 or > 10000 || Documents.MaxPassages is < 1 or > 30 || Documents.MaxFileMegabytes is < 1 or > 500 || History.RecentMessages is < 2 or > 40 || History.SummaryCharacters is < 100 or > 10000 || History.MessageCharacters is < 100 or > 20000)
+        if (Ai.TimeoutSeconds is < 1 or > 600 || Ai.MaxOutputTokens is < 1 or > 1_000_000 || Ai.MaxInputTokens is < 0 or > 10_000_000 || Documents.IntervalMinutes is < 1 or > 1440 || Documents.ChunkCharacters is < 200 or > 10000 || Documents.MaxPassages is < 1 or > 30 || Documents.MaxFileMegabytes is < 1 or > 500 || History.RecentMessages is < 2 or > 40 || History.SummaryCharacters is < 100 or > 10000 || History.MessageCharacters is < 100 or > 20000)
             throw new InvalidDataException("מגבלות config אינן תקינות");
         if (Documents.EvidenceCharacters is < 500 or > 30000 || Documents.ExcerptCharacters is < 200 or > 4000 || History.ContextCharacters is < 500 or > 12000)
             throw new InvalidDataException("מגבלות הקשר וחיפוש אינן תקינות");
@@ -41,7 +41,6 @@ public sealed class AiOptions
     [System.Text.Json.Serialization.JsonIgnore]
     public string? EnvironmentFileKey { get; set; }
     public string SystemPrompt { get; set; } = "";
-    public int RequestsPerMinute { get; set; }
     public string Endpoint { get; set; } = "https://api.openai.com/v1/chat/completions";
     public string Model { get; set; } = "gpt-4o-mini";
     public string InputTokensPath { get; set; } = "";
@@ -52,6 +51,11 @@ public sealed class AiOptions
     public string HeaderName { get; set; } = "api-key";
     public int TimeoutSeconds { get; set; } = 60;
     public int MaxOutputTokens { get; set; } = 1600;
+    /// <summary>The model's input window in tokens (0 = unknown); sizes how much of an attached document is sent.</summary>
+    public int MaxInputTokens { get; set; }
+    /// <summary>A reasoning model: its thinking counts toward MaxOutputTokens and is never shown as the answer.</summary>
+    public bool Thinking { get; set; }
+    public bool Vision { get; set; }
     public string[] AllowedHosts { get; set; } = ["api.openai.com"];
     public bool UseProxy { get; set; }
     /// <summary>Request field for the output limit: "" = format default (max_completion_tokens / max_output_tokens), "max_tokens" for older servers, "none" to omit.</summary>

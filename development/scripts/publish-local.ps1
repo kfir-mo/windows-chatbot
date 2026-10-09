@@ -25,4 +25,4 @@ if(Test-Path -LiteralPath $legacy){Remove-Item -LiteralPath $legacy -Force}
 Write-Output "Chaty: $output\Chaty.exe"
 if($FrameworkDependent){Write-Output 'Requires .NET 8 Windows Desktop Runtime x64 on the target PC.'}
 
-if (!(Test-Path -LiteralPath (Join-Path $output "ai.config.json"))) { Copy-Item -LiteralPath (Join-Path $root "src\Chat.Local\ai.config.example.json") -Destination (Join-Path $output "ai.config.json") }
+# The AI configuration is %APPDATA%\config.json on each PC; nothing else is placed beside the exe.

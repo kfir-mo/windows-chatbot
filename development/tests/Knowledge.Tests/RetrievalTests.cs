@@ -76,4 +76,12 @@ public sealed class RetrievalTests
         using var json = System.Text.Json.JsonDocument.Parse(context[(context.IndexOf("availableSources: ") + 18)..]);
         Assert.True(json.RootElement.GetArrayLength() > 0);
     }
+    [Fact]
+    public void HebrewPrefixesAndFeminineEndingsMatchTheBaseWord()
+    {
+        var terms = SearchText.Terms("כשאפליקציה קורסת תקועה");
+        Assert.Contains("אפליקציה", terms); // the two-letter prefix כש
+        Assert.Contains("קורס", terms);      // present-tense feminine ת
+        Assert.Contains("תקוע", terms);      // feminine ה
+    }
 }

@@ -13,29 +13,39 @@ public partial class MainWindow
     private string activeTypeId = "default";
     private bool switchingType;
     private Config activeConfig = null!;
+    private int switchVersion;
+    /// <summary>Switches at once: the assistant's page shows immediately and its documents load and refresh in the
+    /// background, while the header, history and typing stay usable. Switching again stops the previous assistant's
+    /// refresh. Only sending waits for the documents (a question sent meanwhile goes out when they are ready).</summary>
     private async Task ActivateTypeAsync(string id, bool restoreHistory)
     {
-        if (!loggedIn || request != null || indexing || switchingType) return;
+        if (!loggedIn || request != null) return;
+        var version = ++switchVersion;
+        sendWhenReady = false;
+        if (indexTask != null) { quietCancel = true; indexRequest?.Cancel(); try { await indexTask; } catch { } quietCancel = false; }
+        if (version != switchVersion) return;
+        CloseNotice(this, new());
         var type = chatTypes.First(t => t.Id == id);
-        switchingType = true;
-        ChatTypePicker.IsEnabled = SendButton.IsEnabled = HistoryTab.IsEnabled = NewChatButton.IsEnabled = false;
-        try
-        {
-            var typeConfig = type.Apply(config);
-            var session = SessionIndexFor(id, typeConfig);
-            var nextIndex = await session.Loading.WaitAsync(lifetime.Token);
-            activeTypeId = id; activeConfig = typeConfig; index = nextIndex; activeSession = session; indexedFiles = null;
-            ChatTypeName.Text = type.Name;
-            current = restoreHistory ? conversations.LastOrDefault(c => c.ChatTypeId == id) ?? new() { ChatTypeId = id } : new() { ChatTypeId = id };
-            Question.Clear(); ShowPage("chat"); await RenderAsync();
-            Storage.Save("active-chat-type.bin", id);
-            await IndexAsync(false);
-        }
-        finally { switchingType = false; ChatTypePicker.IsEnabled = SendButton.IsEnabled = HistoryTab.IsEnabled = NewChatButton.IsEnabled = true; }
+        var typeConfig = type.Apply(config);
+        var session = SessionIndexFor(id, typeConfig);
+        activeTypeId = id; activeConfig = typeConfig; activeSession = session; indexedFiles = null; sourcesReady = false;
+        // Only the active assistant's index stays in memory; another one loads from its encrypted cache in a moment.
+        foreach (var other in sessionIndexes.Keys.Where(k => k != id).ToList()) sessionIndexes.Remove(other);
+        current = restoreHistory ? conversations.LastOrDefault(c => c.ChatTypeId == id) ?? new() { ChatTypeId = id } : new() { ChatTypeId = id };
+        switchingType = true; UpdateSendState();
+        Status.Text = HasDocuments(type) && !session.Loading.IsCompleted ? "טוען את המסמכים…" : IdleStatus();
+        Question.Clear(); ShowPage("chat"); await RenderAsync();
+        try { Storage.Save("active-chat-type.bin", id); } catch { }
+        DocumentIndex nextIndex;
+        try { nextIndex = await session.Loading.WaitAsync(lifetime.Token); }
+        catch (Exception) when (version == switchVersion) { switchingType = false; UpdateSendState(); Status.Text = IdleStatus(); Notice("לא ניתן לטעון את המסמכים של העוזר. נסו שוב מתפריט ⋯ · רענון המסמכים."); return; }
+        catch { return; }
+        if (version != switchVersion) return;
+        index = nextIndex; switchingType = false;
+        await IndexAsync(false);
     }
-    /// <summary>Document indexes stay loaded for the whole session (they vanish when the app closes), so switching
-    /// assistants or starting a new chat doesn't decrypt, re-tokenize and rescan the folders again. The persistent,
-    /// encrypted cache in %LOCALAPPDATA% still makes the first load after a restart fast.</summary>
+    /// <summary>The active assistant's index stays loaded, so a new chat doesn't decrypt, re-tokenize and rescan its folders
+    /// again; switching assistants loads the other one from the encrypted cache in %LOCALAPPDATA%.</summary>
     private sealed class SessionIndex(string identity, Task<DocumentIndex> loading)
     {
         public string Identity { get; } = identity;
@@ -54,31 +64,11 @@ public partial class MainWindow
         sessionIndexes[id] = created;
         return created;
     }
-    /// <summary>After startup, load and refresh the other assistants in the background, one at a time.</summary>
-    private async Task PreloadAssistantsAsync()
-    {
-        foreach (var type in chatTypes.Where(t => !t.IsGeneral && !t.IsManaged && t.Paths.Count > 0).ToList())
-        {
-            try
-            {
-                await Task.Delay(1500, lifetime.Token);
-                if (type.Id == activeTypeId || !chatTypes.Contains(type)) continue;
-                var session = SessionIndexFor(type.Id, type.Apply(config));
-                if (session.Refreshed != null) continue;
-                var loaded = await session.Loading.WaitAsync(lifetime.Token);
-                await loaded.RefreshAsync(false, null, lifetime.Token);
-                session.Refreshed = DateTimeOffset.Now;
-            }
-            catch (OperationCanceledException) { return; }
-            catch { }
-        }
-        MemoryTrim.Schedule(Dispatcher, expanded ? IdleTrimSeconds : 1.5);
-    }
     private static string FolderName(string path) { var name = System.IO.Path.GetFileName(System.IO.Path.TrimEndingDirectorySeparator(path)); return string.IsNullOrEmpty(name) ? path : name; }
     private void OpenChatTypeDialog(ChatType? type)
     {
         if (!loggedIn || !personalAllowed || type?.IsGeneral == true || type?.IsManaged == true) return;
-        if (request != null || indexing || switchingType) { Status.Text = "המתינו לסיום הפעולה הנוכחית."; return; }
+        if (request != null) { Notice("המתינו לסיום הפעולה הנוכחית.", false); return; }
         // The form is a full-panel screen; its color and symbol are kept only when the assistant is saved.
         var editor = new ChatTypesPage(type, type == null ? NewAssistantLook() : LookOf(type), config.Documents.SearchSubfolders);
         editor.SaveRequested = async saved =>
@@ -108,15 +98,22 @@ public partial class MainWindow
         else foreach (var kept in conversations.Where(c => c.ChatTypeId == id)) kept.KeptAfterDelete = true;
         Save();
         if (activeTypeId == id) await ActivateTypeAsync(next[0].Id, false);
+        RemoveUnusedIndexes();
+    }
+    private void RemoveUnusedIndexes()
+    {
+        var inUse = chatTypes.Where(t => !t.IsGeneral && !t.IsManaged && t.Paths.Count > 0).Select(t => t.Apply(config)).ToList();
+        _ = System.Threading.Tasks.Task.Run(() => DocumentIndex.RemoveUnusedCaches(inUse));
     }
     private async Task SaveChatTypeAsync(ChatType type)
     {
         if (!personalAllowed || type.IsGeneral || type.IsManaged) throw new InvalidOperationException("הצ׳אט הכללי אינו ניתן לעריכה.");
-        if (!loggedIn || request != null || indexing || switchingType) throw new InvalidOperationException("המתינו לסיום הפעולה הנוכחית.");
+        if (!loggedIn || request != null) throw new InvalidOperationException("המתינו לסיום הפעולה הנוכחית.");
         if (chatTypes.Any(t => t.Id != type.Id && t.Name.Equals(type.Name, StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("כבר קיים עוזר בשם זה.");
         var next = chatTypes.Where(t => t.Id != type.Id).Append(type).ToList();
         Storage.Save("chat-types.bin", next.Where(t=>!t.IsManaged).ToList()); chatTypes = next;
         await ActivateTypeAsync(type.Id, false);
+        RemoveUnusedIndexes();
     }
 }
 

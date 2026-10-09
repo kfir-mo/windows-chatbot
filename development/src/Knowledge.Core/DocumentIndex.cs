@@ -47,6 +47,8 @@ public static partial class SearchText
             {
                 if (!Stop.Contains(word[1..])) stems.Add(word[1..]);
                 if (word.Length >= 5 && word[0] == 'ו' && "בכלמהש".Contains(word[1])) stems.Add(word[2..]);
+                // Two-letter prefixes: כש / לכש / מש ("כשאפליקציה" is "when the application").
+                if (word.Length >= 6 && (word.StartsWith("כש") || word.StartsWith("מש") || word.StartsWith("וכש"))) stems.Add(word[(word[0] == 'ו' ? 3 : 2)..]);
             }
             foreach (var stem in stems)
             {
@@ -59,8 +61,11 @@ public static partial class SearchText
     /// "שומר מסך" (screen saver) and "הוראות" matches "הוראה". Both the index and the query use the same variants.</summary>
     private static IEnumerable<string> HebrewSuffixVariants(string word)
     {
-        // Construct nouns often replace a final ה with ת (e.g. שפת / שפה).
+        // Construct nouns often replace a final ה with ת (e.g. שפת / שפה); present-tense feminine verbs end in ת (קורסת / קורס).
         if (word.Length >= 3 && word[^1] == 'ת') yield return word[..^1] + "ה";
+        if (word.Length >= 5 && word[^1] == 'ת' && !word.EndsWith("ות")) yield return word[..^1];
+        // Feminine adjectives and nouns end in ה: תקועה → תקוע.
+        if (word.Length >= 4 && word[^1] == 'ה') yield return word[..^1];
         // Plural masculine (ים) and feminine (ות): שומרים → שומר, הוראות → הוראה.
         if (word.Length >= 5 && word.EndsWith("ים")) yield return word[..^2];
         if (word.Length >= 5 && word.EndsWith("ות")) { yield return word[..^2]; yield return word[..^2] + "ה"; }
@@ -87,11 +92,30 @@ public sealed class DocumentIndex : IDocumentSearch
     private Snapshot snapshot;
     private readonly string cacheName;
     public IndexStatistics Statistics { get; private set; } = new(0, 0, 0, 0, 0);
+    /// <summary>The encrypted cache file of one set of folders and chunking settings.</summary>
+    public static string CacheName(Config config)
+    {
+        var identity = string.Join("|", config.Documents.EffectiveRoots.Select(p => Path.GetFullPath(p).ToLowerInvariant()).Order()) + "|v7|" + config.Documents.ChunkCharacters + "|" + config.Documents.SearchSubfolders;
+        return "index7-" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(identity)))[..16] + ".bin";
+    }
+    /// <summary>Deletes caches no assistant uses any more (a deleted assistant, or folders that changed): they hold
+    /// document text, so they don't stay on the disk. Also removes the request-budget state of older versions.</summary>
+    public static void RemoveUnusedCaches(IEnumerable<Config> inUse)
+    {
+        var keep = inUse.Select(CacheName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            foreach (var file in Directory.EnumerateFiles(Storage.Root, "index7-*.bin"))
+                if (!keep.Contains(Path.GetFileName(file))) File.Delete(file);
+            File.Delete(Path.Combine(Storage.Root, "ai-request-budget.bin"));
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
     public DocumentIndex(Config config)
     {
         this.config = config;
-        var identity = string.Join("|", config.Documents.EffectiveRoots.Select(p => Path.GetFullPath(p).ToLowerInvariant()).Order()) + "|v7|" + config.Documents.ChunkCharacters + "|" + config.Documents.SearchSubfolders;
-        cacheName = "index7-" + Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(Encoding.UTF8.GetBytes(identity)))[..16] + ".bin";
+        cacheName = CacheName(config);
         RemoveLegacyCaches();
         var files = new Dictionary<string, IndexedFile>(StringComparer.OrdinalIgnoreCase);
         var locations = new Dictionary<string, string>(StringComparer.Ordinal);

@@ -6,6 +6,11 @@
     <Product>Chaty</Product><AssemblyTitle>Chaty</AssemblyTitle><Description>Chaty</Description><Version>1.1.0</Version><DefineConstants>$(DefineConstants);LOCAL_PROTOTYPE</DefineConstants>
     <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
     <EnableDefaultPageItems>false</EnableDefaultPageItems>
+    <!-- Smaller exe and less memory: no localized framework resources (the UI is Hebrew text of its own), workstation GC
+         without the background GC thread. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <ConcurrentGarbageCollection>false</ConcurrentGarbageCollection>
+    <TieredPGO>false</TieredPGO>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="../Knowledge.Core/Knowledge.Core.csproj"/>
@@ -13,6 +18,5 @@
     <ApplicationDefinition Include="../Chat/App.xaml" Link="App.xaml"/>
     <Page Include="../Chat/*.xaml" Exclude="../Chat/App.xaml" Link="%(Filename)%(Extension)"/>
     <Resource Include="../Chat/chaty.ico" Link="chaty.ico"/>
-    <None Include="ai.config.example.json" Link="ai.config.json" CopyToOutputDirectory="PreserveNewest" ExcludeFromSingleFile="true" Condition="'$(ExcludeDevelopmentSettings)' != 'true'"/>
   </ItemGroup>
 </Project>

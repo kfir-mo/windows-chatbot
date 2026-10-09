@@ -39,6 +39,15 @@ internal static class MessageView
             Child = MainWindow.CreateMessageText(message.Text, true)
         };
         var column = new StackPanel { HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 4, 36, 8) };
+        if (message.File is { } file)
+        {
+            var label = new StackPanel { Orientation = Orientation.Horizontal };
+            label.Children.Add(FileBadge.For(file.Name));
+            label.Children.Add(new TextBlock { Text = file.Name, FontSize = 12.5, FontWeight = FontWeights.SemiBold, MaxWidth = 210, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
+            var chip = new Border { Background = Theme.Brush("Surface"), BorderBrush = Theme.Brush("Line"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(10), Padding = new Thickness(8, 5, 10, 5), Margin = new Thickness(0, 0, 0, 4), HorizontalAlignment = HorizontalAlignment.Left, Child = label, ToolTip = "מסמך מצורף" };
+            System.Windows.Automation.AutomationProperties.SetName(chip, "מסמך מצורף: " + file.Name);
+            column.Children.Add(chip);
+        }
         column.Children.Add(bubble);
         // Under the bubble: the time on its own side and, while the message is hovered or focused, a copy button at the far end.
         var footer = new Grid { Margin = new Thickness(4, 2, 0, 0) };

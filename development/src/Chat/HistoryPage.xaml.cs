@@ -14,7 +14,7 @@ public partial class HistoryPage : UserControl
     /// <summary>One row: the conversation plus its assistant's color, and its place in the day's card.</summary>
     public sealed record Item(Conversation Conversation, Brush Badge, string Glyph, Thickness Divider, CornerRadius Corners)
     {
-        public string Title => System.Text.RegularExpressions.Regex.Replace(Conversation.Title.Trim(), @"\s+", " ");
+        public string Title => Conversation.ShortTitle;
         public string Meta => (string.IsNullOrWhiteSpace(Conversation.ChatTypeName) ? "כללי" : Conversation.ChatTypeName) + " · " + Conversation.Messages.Last().Time.ToLocalTime().ToString("HH:mm");
         public string AccessibleName => Title + ", " + Meta;
     }
@@ -43,6 +43,8 @@ public partial class HistoryPage : UserControl
         BuildFilters();
         Apply();
     }
+    /// <summary>Shows titles that arrived after the list was built, keeping the search, filter and an open delete question.</summary>
+    public void RefreshTitles() { if (pendingConfirmation == null) Apply(); }
     private void Back(object sender, RoutedEventArgs e) => BackRequested?.Invoke();
     private void BuildFilters()
     {
@@ -73,7 +75,7 @@ public partial class HistoryPage : UserControl
         pendingConfirmation = null;
         // Every word must appear somewhere in the conversation (title or any message), in any order.
         var words = SearchBox.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        bool Matches(Conversation c) => words.All(w => c.ChatTypeName.Contains(w, StringComparison.OrdinalIgnoreCase) || c.Messages.Any(m => m.Text.Contains(w, StringComparison.OrdinalIgnoreCase)));
+        bool Matches(Conversation c) => words.All(w => c.ChatTypeName.Contains(w, StringComparison.OrdinalIgnoreCase) || c.Topic.Contains(w, StringComparison.OrdinalIgnoreCase) || c.Messages.Any(m => m.Text.Contains(w, StringComparison.OrdinalIgnoreCase)));
         groups.Clear();
         var shown = 0;
         foreach (var day in all.Where(c => (typeFilter == null || c.ChatTypeId == typeFilter) && Matches(c)).GroupBy(c => c.Messages.Last().Time.ToLocalTime().Date))

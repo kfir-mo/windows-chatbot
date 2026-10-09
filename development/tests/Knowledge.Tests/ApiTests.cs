@@ -123,4 +123,63 @@ public sealed class ApiTests
         Assert.Contains("תקציב", error.Message);
         Assert.DoesNotContain("private-error-secret", error.Message);
     }
+
+    private static AiClient Reply(HttpStatusCode status, string body)
+    {
+        var config = new Config(); config.Ai.Authentication = "none";
+        return new AiClient(config, new StubHandler(_ => Task.FromResult(new HttpResponseMessage(status) { Content = new StringContent(body) })));
+    }
+    [Fact]
+    public async Task ReasoningIsNeverTheAnswer()
+    {
+        using var ai = Reply(HttpStatusCode.OK, """
+            {"id":"chatcmpl-1","object":"chat.completion","choices":[{"finish_reason":"stop","index":0,
+              "message":{"role":"assistant","reasoning_content":"private thinking","content":"<think>more thinking</think>\nשלום"},
+              "provider_specific_fields":{"token_ids":null}}],"usage":{"completion_tokens":5,"prompt_tokens":3,"total_tokens":8,"completion_tokens_details":{"reasoning_tokens":2}}}
+            """);
+        Assert.Equal("שלום", await ai.CompleteAsync("i", "q", default));
+        Assert.Equal(1, ai.UsageReports);
+    }
+    [Fact]
+    public async Task ThinkingThatUsedTheWholeBudgetIsExplained()
+    {
+        using var ai = Reply(HttpStatusCode.OK, """
+            {"choices":[{"finish_reason":"length","index":0,"message":{"role":"assistant","reasoning_content":"long thinking","content":null}}],"usage":{"completion_tokens":16,"prompt_tokens":3,"total_tokens":19}}
+            """);
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => ai.CompleteAsync("i", "q", default));
+        Assert.Contains("maxOutputTokens", error.Message);
+        Assert.DoesNotContain("long thinking", error.Message);
+    }
+    private const string LimitBody = """
+        {"error":{"message":"Rate limit exceeded for api_key: fictional-secret-key. Limit type: requests. Current limit: 15, Remaining: 0. Limit resets at: 2026-10-07 11:32:10 UTC","type":"None","param":"None","code":"429"}}
+        """;
+    [Fact]
+    public async Task ServerRateLimitStopsWithTheResetTimeAndNoKey()
+    {
+        using var ai = Reply(HttpStatusCode.TooManyRequests, LimitBody);
+        var error = await Assert.ThrowsAsync<RateLimitException>(() => ai.CompleteAsync("i", "q", default));
+        Assert.Contains("15", error.Message);
+        Assert.DoesNotContain("fictional-secret-key", error.Message);
+        Assert.Equal(new DateTimeOffset(2026, 10, 7, 11, 32, 10, TimeSpan.Zero), error.ResetsAt);
+        // The same error inside a 200 body is still the server's limit.
+        using var proxied = Reply(HttpStatusCode.OK, LimitBody);
+        await Assert.ThrowsAsync<RateLimitException>(() => proxied.CompleteAsync("i", "q", default));
+        var soon = RateLimitException.From("Limit resets at: 2026-10-07 11:32:10 UTC", null, new DateTimeOffset(2026, 10, 7, 11, 31, 40, TimeSpan.Zero));
+        Assert.Contains("30 שניות", soon.Message);
+    }
+    [Fact]
+    public async Task ThereIsNoInternalRequestBudget()
+    {
+        var calls = 0;
+        var config = new Config(); config.Ai.Authentication = "none";
+        using var ai = new AiClient(config, new StubHandler(_ =>
+        {
+            calls++;
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"choices\":[{\"message\":{\"content\":\"OK\"}}]}") });
+        }));
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        for (int i = 0; i < 40; i++) await ai.CompleteAsync("i", "q", default);
+        Assert.Equal(40, calls);
+        Assert.True(clock.ElapsedMilliseconds < 5000);
+    }
 }

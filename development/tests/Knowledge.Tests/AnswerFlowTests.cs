@@ -43,6 +43,14 @@ public sealed class AnswerFlowTests
         Assert.False(search.Searched);
         Assert.Null(search.ReadPath);
         Assert.Single(ai.Inputs);
+        // General chat has the answer modes too: still one call, asking for a short or a thorough answer.
+        foreach (var (mode, words) in new[] { (AnswerMode.Fast, "fast mode"), (AnswerMode.Deep, "deep mode") })
+        {
+            var styled = new QueueAi("תשובה");
+            await new ChatEngine(config, styled, search) { Mode = mode }.AskAsync("מה ההבדל בין RAM לאחסון?", new(), null, default);
+            Assert.Contains(words, Assert.Single(styled.Instructions));
+        }
+        Assert.False(search.Searched);
     }
     [Fact]
     public void ModelInputPreservesReadableHebrew()
@@ -129,6 +137,34 @@ public sealed class AnswerFlowTests
     }
 
     [Fact]
+    public async Task FastModeSearchesAgainWithThePlannersWordsOnlyAfterAMiss()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            // The user's own words found nothing to cite; the planner adds the documents' words and the second answer cites.
+            var ai = new QueueAi("""{"answer":"","citations":[]}""", """{"action":"search","query":"uninstall removal"}""", """{"answer":"Remove it","citations":[1]}""");
+            var search = new Search(path);
+            var result = await new ChatEngine(new(), ai, search) { Mode = AnswerMode.Fast }.AskAsync("how do I take the app off", new(), null, default);
+            Assert.Equal("Remove it", result.Text);
+            Assert.Equal(3, ai.Instructions.Count);
+            Assert.Equal("uninstall removal", search.Queries[^1]);
+        }
+        finally { File.Delete(path); }
+    }
+
+    [Fact]
+    public async Task ConversationTitleIsAShortSummaryNotTheRequest()
+    {
+        var ai = new QueueAi("\"כתיבת קוד בפייתון.\"\nextra line");
+        Assert.Equal("כתיבת קוד בפייתון", await ConversationTopic.SummarizeAsync(ai, "איך כותבים קוד פשוט בפייתון? תן לי דוגמה מלאה עם הסברים", null, default));
+        Assert.Null(ConversationTopic.Clean("  "));
+        // Until the title arrives (or if it can't be had): the first words, never longer than the header can show.
+        var fallback = ConversationTopic.Fallback("איך כותבים קוד פשוט בפייתון עם ספריות חיצוניות?");
+        Assert.True(fallback.Length <= ConversationTopic.MaxCharacters + 1); Assert.EndsWith("…", fallback);
+        Assert.Equal("שאלה קצרה", ConversationTopic.Fallback("שאלה קצרה?"));
+    }
+    [Fact]
     public void InlineNumberedPointsGetTheirOwnLines()
     {
         Assert.Equal("יש לבצע את הצעדים הבאים:\n1. שער אורן\n2. אבטחה\n3. אימות דו שלבי. גרסה 2.5 בלבד.", AnswerFormat.SplitInlineLists("יש לבצע את הצעדים הבאים: 1. שער אורן 2. אבטחה 3. אימות דו שלבי. גרסה 2.5 בלבד."));
@@ -147,10 +183,11 @@ public sealed class AnswerFlowTests
     {
         public bool HasStrongMatch(string query) => RetrievalText.HasStrongMatch(query, [new(path, "Support", "Call 4321")]);
         public bool Searched;
+        public List<string> Queries = [];
         public string? ReadPath;
         public Task RefreshAsync(bool force, IProgress<string>? progress, CancellationToken cancellation) => Task.CompletedTask;
         public Task<List<Passage>> SearchAsync(string query, CancellationToken cancellation)
-        { Searched = true; return Task.FromResult(new List<Passage> { new(path, "Support", "Call 4321") }); }
+        { Searched = true; Queries.Add(query); return Task.FromResult(new List<Passage> { new(path, "Support", "Call 4321") }); }
         public Task<List<Passage>> ReadAsync(string selected, CancellationToken cancellation)
         {
             ReadPath = selected;

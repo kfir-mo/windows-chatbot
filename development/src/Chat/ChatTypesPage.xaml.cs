@@ -90,14 +90,22 @@ public partial class ChatTypesPage : UserControl
     private void ShowPathFeedback(string text) { if (PathFeedback == null) return; PathFeedback.Text = text; PathFeedback.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed; }
 
     // ---- Folders ----
-    /// <summary>"עיון…" picks a folder; a specific file is added by typing or pasting its path.</summary>
+    /// <summary>"עיון" picks a folder; the document button picks one specific file (a path can also be typed or pasted).</summary>
     private string? PickFolder()
     {
         var dialog = new Microsoft.Win32.OpenFolderDialog { Title = "בחירת תיקיית מסמכים" };
         return dialog.ShowDialog(Window.GetWindow(this)) == true ? dialog.FolderName : null;
     }
+    private string? PickFile()
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog { Title = "בחירת מסמך", Filter = "מסמכים|" + string.Join(";", DocumentIndex.Extensions.Select(x => "*" + x)) };
+        return dialog.ShowDialog(Window.GetWindow(this)) == true ? dialog.FileName : null;
+    }
+    private void BrowseFileFirst(object sender, RoutedEventArgs e) { if (PickFile() is { } path) _ = AddFolderAsync(path); }
+    // Choosing from the computer adds at once; only a typed path waits for "הוספה".
+    private void BrowseFileNew(object sender, RoutedEventArgs e) { if (PickFile() is { } path) { NewPath.Text = path; _ = AddTypedAsync(NewPath); } }
     private void BrowseFirst(object sender, RoutedEventArgs e) { if (PickFolder() is { } path) _ = AddFolderAsync(path); }
-    private void BrowseNew(object sender, RoutedEventArgs e) { if (PickFolder() is { } path) { NewPath.Text = path; NewPath.Focus(); NewPath.CaretIndex = path.Length; } }
+    private void BrowseNew(object sender, RoutedEventArgs e) { if (PickFolder() is { } path) { NewPath.Text = path; _ = AddTypedAsync(NewPath); } }
     private static bool LooksLikeFile(string path) => DocumentIndex.Extensions.Contains(Path.GetExtension(path).ToLowerInvariant());
     private void AddFirst(object sender, RoutedEventArgs e) => _ = AddTypedAsync(FirstPath);
     private void AddNew(object sender, RoutedEventArgs e) => _ = AddTypedAsync(NewPath);

@@ -10,7 +10,6 @@ public sealed class AiClient : IAiClient, IDisposable
 {
     private readonly Config config;
     private readonly HttpClient http;
-    public Action<TimeSpan>? WaitingForRateLimit { get; set; }
     private long inputTokens, outputTokens, successfulRequests, usageReports, attemptedRequests;
     public long AttemptedRequests => Interlocked.Read(ref attemptedRequests);
     public long UsageReports => Interlocked.Read(ref usageReports);
@@ -52,49 +51,71 @@ public sealed class AiClient : IAiClient, IDisposable
         if (limitField != "none") body[limitField] = a.MaxOutputTokens;
         if (a.Temperature.HasValue) body["temperature"] = a.Temperature.Value;
         request.Content = JsonContent.Create(body);
-        if (a.RequestsPerMinute > 0) await AiRequestGate.Local.WaitAsync(a.RequestsPerMinute, cancellation, WaitingForRateLimit);
+        // No request budget of its own: calls go out until the server answers 429, and that answer is shown as is.
         Interlocked.Increment(ref attemptedRequests);
         using var response = await http.SendAsync(request, cancellation);
-        if (!response.IsSuccessStatusCode)
-        {
-            if ((int)response.StatusCode == 429 && a.RequestsPerMinute > 0)
-            {
-                var retry = response.Headers.RetryAfter;
-                var wait = retry?.Delta ?? (retry?.Date - DateTimeOffset.UtcNow) ?? TimeSpan.FromSeconds(61);
-                await AiRequestGate.Local.BackOffAsync(wait > TimeSpan.FromSeconds(61) ? wait : TimeSpan.FromSeconds(61));
-            }
-            // Only map known error codes. Never expose the response body, which may echo credentials.
-            string? code = null;
-            try
-            {
-                using var failure = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellation));
-                if (failure.RootElement.TryGetProperty("error", out var error) && error.TryGetProperty("code", out var errorCode) && errorCode.ValueKind == JsonValueKind.String) code = errorCode.GetString();
-            }
-            catch (JsonException) { }
-            var reason = ((int)response.StatusCode, code) switch
-            {
-                (>= 300 and < 400, _) => "השרת החזיר הפניה לכתובת אחרת. הפניות חסומות; הגדירו את כתובת ה-API הסופית בהגדרות (ai.config.json).",
-                (401, _) => "האימות נדחה. בדקו את המפתח או את הרשאות המשתמש לשירות ה-AI.",
-                (403, _) => "אין הרשאה לבקשה או למודל שהוגדר.",
-                (404, _) => "המודל או כתובת ה-API לא נמצאו. בדקו את ההגדרות.",
-                (429, "insufficient_quota") => "מכסת ה-API או התקציב בחשבון אזלו. בדקו חיוב ויתרה בחשבון ה-API.",
-                (429, _) => "חריגה ממגבלת הבקשות. המתינו מעט ובדקו מגבלות שימוש.",
-                (400, _) => "השרת דחה את מבנה הבקשה. בדקו מודל ופורמט API.",
-                (>= 500, _) => "תקלה זמנית בשירות ה-AI. נסו שוב בהמשך.",
-                _ => "הבקשה נדחתה. בדקו כתובת, הרשאות ומודל."
-            };
-            throw new InvalidOperationException($"HTTP {(int)response.StatusCode}: {reason}");
-        }
-        using var json = JsonDocument.Parse(await response.Content.ReadAsStringAsync(cancellation));
+        var text = await response.Content.ReadAsStringAsync(cancellation);
+        JsonDocument? parsed = null;
+        try { parsed = JsonDocument.Parse(text); } catch (JsonException) when (!response.IsSuccessStatusCode) { }
+        using var json = parsed;
+        // Some proxies report an error inside a 200 body ({"error": {...}} without choices).
+        var error = json?.RootElement is { ValueKind: JsonValueKind.Object } reply && reply.TryGetProperty("error", out var e) && e.ValueKind == JsonValueKind.Object
+            && !reply.TryGetProperty("choices", out _) && !reply.TryGetProperty("output", out _) ? e : (JsonElement?)null;
+        if (!response.IsSuccessStatusCode || error != null) throw Failure((int)response.StatusCode, error, response.Headers.RetryAfter);
+        var root = json!.RootElement;
         Interlocked.Increment(ref successfulRequests);
-        var usedInput = UsageReader.Read(json.RootElement, string.IsNullOrWhiteSpace(a.InputTokensPath) ? (a.Format == "responses" ? "usage.input_tokens" : "usage.prompt_tokens") : a.InputTokensPath);
-        var usedOutput = UsageReader.Read(json.RootElement, string.IsNullOrWhiteSpace(a.OutputTokensPath) ? (a.Format == "responses" ? "usage.output_tokens" : "usage.completion_tokens") : a.OutputTokensPath);
+        var usedInput = UsageReader.Read(root, string.IsNullOrWhiteSpace(a.InputTokensPath) ? (a.Format == "responses" ? "usage.input_tokens" : "usage.prompt_tokens") : a.InputTokensPath);
+        var usedOutput = UsageReader.Read(root, string.IsNullOrWhiteSpace(a.OutputTokensPath) ? (a.Format == "responses" ? "usage.output_tokens" : "usage.completion_tokens") : a.OutputTokensPath);
         if (usedInput.HasValue && usedOutput.HasValue)
         {
             Interlocked.Add(ref inputTokens, usedInput.Value); Interlocked.Add(ref outputTokens, usedOutput.Value);
             Interlocked.Increment(ref usageReports);
         }
-        return a.Format == "responses" ? string.Join("\n", json.RootElement.GetProperty("output").EnumerateArray().Where(x => x.TryGetProperty("content", out _)).SelectMany(x => x.GetProperty("content").EnumerateArray()).Where(x => x.GetProperty("type").GetString() == "output_text").Select(x => x.GetProperty("text").GetString())) : json.RootElement.GetProperty("choices")[0].GetProperty("message").GetProperty("content").GetString() ?? "";
+        return a.Format == "responses" ? string.Join("\n", root.GetProperty("output").EnumerateArray().Where(x => x.TryGetProperty("content", out _)).SelectMany(x => x.GetProperty("content").EnumerateArray()).Where(x => x.GetProperty("type").GetString() == "output_text").Select(x => x.GetProperty("text").GetString())) : Answer(root);
+    }
+    /// <summary>The visible answer of a chat completion. Reasoning models put their thinking in reasoning_content (or a leading
+    /// &lt;think&gt; block); that is never the answer. When the thinking used up max_tokens, content is null and finish_reason is "length".</summary>
+    public static string Answer(JsonElement root)
+    {
+        var choice = root.GetProperty("choices")[0];
+        var message = choice.GetProperty("message");
+        var content = message.TryGetProperty("content", out var c) ? c.ValueKind switch
+        {
+            JsonValueKind.String => c.GetString(),
+            JsonValueKind.Array => string.Concat(c.EnumerateArray().Where(p => p.TryGetProperty("text", out var t) && t.ValueKind == JsonValueKind.String).Select(p => p.GetProperty("text").GetString())),
+            _ => null
+        } : null;
+        content = System.Text.RegularExpressions.Regex.Replace(content ?? "", @"^\s*<think>.*?(</think>\s*|$)", "", System.Text.RegularExpressions.RegexOptions.Singleline);
+        if (!string.IsNullOrWhiteSpace(content)) return content;
+        var reason = choice.TryGetProperty("finish_reason", out var f) && f.ValueKind == JsonValueKind.String ? f.GetString() : null;
+        throw new InvalidOperationException(reason == "length"
+            ? "המודל הגיע למגבלת אורך התשובה (maxOutputTokens) עוד לפני שכתב תשובה, כנראה בזמן החשיבה. נסו שאלה ממוקדת יותר, מודל בלי חשיבה, או maxOutputTokens גבוה יותר בהגדרת ה־JSON."
+            : "המודל החזיר תשובה ריקה. נסו שוב.");
+    }
+    private static Exception Failure(int status, JsonElement? error, RetryConditionHeaderValue? retry)
+    {
+        // Only map known error codes and read numbers out of the message. Never expose the response body: it may echo the key
+        // ("Rate limit exceeded for api_key: …").
+        string? code = null, message = null;
+        if (error is { } e)
+        {
+            if (e.TryGetProperty("code", out var c)) code = c.ValueKind switch { JsonValueKind.String => c.GetString(), JsonValueKind.Number => c.GetRawText(), _ => null };
+            if (e.TryGetProperty("message", out var m) && m.ValueKind == JsonValueKind.String) message = m.GetString();
+        }
+        if (status is >= 200 and < 300) status = int.TryParse(code, out var reported) && reported >= 400 ? reported : 500;
+        if (status == 429 && code != "insufficient_quota") return RateLimitException.From(message, retry);
+        var reason = (status, code) switch
+        {
+            (>= 300 and < 400, _) => "השרת החזיר הפניה לכתובת אחרת. הפניות חסומות; הגדירו את כתובת ה-API הסופית בהגדרות.",
+            (401, _) => "האימות נדחה. בדקו את המפתח או את הרשאות המשתמש לשירות ה-AI.",
+            (403, _) => "אין הרשאה לבקשה או למודל שהוגדר.",
+            (404, _) => "המודל או כתובת ה-API לא נמצאו. בדקו את ההגדרות.",
+            (429, _) => "מכסת ה-API או התקציב בחשבון אזלו. בדקו חיוב ויתרה בחשבון ה-API.",
+            (400, _) => "השרת דחה את מבנה הבקשה. בדקו מודל ופורמט API.",
+            (>= 500, _) => "תקלה זמנית בשירות ה-AI. נסו שוב בהמשך.",
+            _ => "הבקשה נדחתה. בדקו כתובת, הרשאות ומודל."
+        };
+        return new InvalidOperationException($"HTTP {status}: {reason}");
     }
     public void Dispose() => http.Dispose();
     public static JsonDocument ParseJson(string value)

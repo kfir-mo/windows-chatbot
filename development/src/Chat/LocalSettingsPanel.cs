@@ -22,14 +22,17 @@ public sealed class LocalSettingsPanel : UserControl
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         Content = root;
 
-        // Screen header: back arrow and title.
+        // Screen header: back arrow, title and, at the far end, reloading %APPDATA%\config.json.
         var heading = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        var reload = new Button { Style = Ui.Style("IconButton"), Foreground = Theme.Brush("Ink"), Content = new Icon("refresh", 18, null, 2), ToolTip = "טעינה מחדש של קובץ ההגדרות", HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Center };
+        System.Windows.Automation.AutomationProperties.SetName(reload, "טעינה מחדש של קובץ ההגדרות");
+        var headerRow = new Grid(); headerRow.Children.Add(heading); headerRow.Children.Add(reload);
         var back = new Button { Style = Ui.Style("IconButton"), Foreground = Theme.Brush("Ink"), Content = new Icon("back", 20, null, 2), ToolTip = "חזרה" };
         System.Windows.Automation.AutomationProperties.SetName(back, "חזרה בלי לשמור");
         back.Click += (_, _) => Completed?.Invoke(null);
         heading.Children.Add(back);
         heading.Children.Add(new TextBlock { Text = "הגדרות AI", FontSize = 16, FontWeight = FontWeights.Bold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0) });
-        root.Children.Add(new Border { Background = Theme.Brush("Surface"), BorderBrush = Theme.Brush("Line"), BorderThickness = new Thickness(0, 0, 0, 1), Height = 60, Padding = new Thickness(8, 0, 12, 0), Child = heading });
+        root.Children.Add(new Border { Background = Theme.Brush("Surface"), BorderBrush = Theme.Brush("Line"), BorderThickness = new Thickness(0, 0, 0, 1), Height = 60, Padding = new Thickness(8, 0, 8, 0), Child = headerRow });
 
         var panel = new StackPanel { Margin = new Thickness(16, 18, 16, 20) };
         var scroll = new ScrollViewer { Content = panel, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled };
@@ -37,15 +40,53 @@ public sealed class LocalSettingsPanel : UserControl
         TextBlock Label(string text) => new() { Text = text, FontSize = 14, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 0, 0, 8) };
         TextBlock Hint(string text) => new() { Text = text, FontSize = 12.5, Foreground = Theme.Brush("Secondary"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 6, 0, 0) };
 
-        var catalog = LocalAiCatalog.Load();
-        panel.Children.Add(Label("מודל"));
-        var model = new ComboBox { Style = Ui.Style("ModelPicker"), ItemsSource = catalog.Models.Select(m => m.Model).ToArray(), SelectedItem = current.Ai.Model, FlowDirection = FlowDirection.LeftToRight, FontFamily = (FontFamily)FindResource("MonoFont"), FontSize = 13.5 };
-        System.Windows.Automation.AutomationProperties.SetName(model, "מודל");
-        if (model.SelectedIndex < 0) model.SelectedIndex = 0;
-        panel.Children.Add(model);
-        panel.Children.Add(Hint("המודל שישמש את כל העוזרים"));
+        // config.json: when it is missing, a short card with the path and a button to its folder; when it exists, only a
+        // small "edit" link next to the model label (opens it in Notepad; the reload button applies the changes).
+        void Run(string exe, string argument) { try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe) { ArgumentList = { argument }, UseShellExecute = false }); } catch { } }
+        var missing = new StackPanel();
+        var missingCard = new Border { Background = Theme.Brush("Surface"), BorderBrush = Theme.Brush("Line"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 12, 14, 12), Margin = new Thickness(0, 0, 0, 20), Child = missing };
+        panel.Children.Add(missingCard);
+        missing.Children.Add(new TextBlock { Text = "לא נמצא קובץ ההגדרות של ה־AI. כדי לבחור מודל, שמרו אותו בתיקייה הזו:", FontSize = 12.5, Foreground = Theme.Brush("Secondary"), TextWrapping = TextWrapping.Wrap, LineHeight = 18 });
+        // The path on its own line, left to right and selectable, so it can be copied.
+        var where = new TextBox { Text = System.IO.Path.GetDirectoryName(AiConfigFile.Path), IsReadOnly = true, BorderThickness = new Thickness(0), Background = Brushes.Transparent, FlowDirection = FlowDirection.LeftToRight, HorizontalAlignment = HorizontalAlignment.Right, TextWrapping = TextWrapping.Wrap, FontFamily = (FontFamily)FindResource("MonoFont"), FontSize = 12.5, Foreground = Theme.Brush("Ink"), Margin = new Thickness(0, 6, 0, 0) };
+        System.Windows.Automation.AutomationProperties.SetName(where, "התיקייה של קובץ ההגדרות");
+        missing.Children.Add(where);
+        var openFolder = new Button { Style = Ui.Style("LinkButton"), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(-8, 4, 0, -4), Content = "פתיחת התיקייה" };
+        System.Windows.Automation.AutomationProperties.SetName(openFolder, "פתיחת התיקייה של קובץ ההגדרות");
+        openFolder.Click += (_, _) => Run("explorer.exe", System.IO.Path.GetDirectoryName(AiConfigFile.Path)!);
+        missing.Children.Add(openFolder);
 
-        // Internal servers without a key (Authentication "none" or "windows" in ai.config.json) hide the whole key section.
+        var catalog = LocalAiCatalog.Load();
+        var modelLabel = new Grid(); modelLabel.Children.Add(Label("מודל"));
+        var editFile = new Button { Style = Ui.Style("LinkButton"), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, -6, -8, 0), Padding = new Thickness(8, 4, 8, 4), FontSize = 12.5, ToolTip = AiConfigFile.Path };
+        var editContent = new StackPanel { Orientation = Orientation.Horizontal };
+        editContent.Children.Add(new Icon("file", 14, null, 2) { VerticalAlignment = VerticalAlignment.Center });
+        editContent.Children.Add(new TextBlock { Text = "עריכת config.json", Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
+        editFile.Content = editContent;
+        System.Windows.Automation.AutomationProperties.SetName(editFile, "עריכת קובץ ההגדרות");
+        editFile.Click += (_, _) => Run("notepad.exe", AiConfigFile.Path);
+        modelLabel.Children.Add(editFile);
+        panel.Children.Add(modelLabel);
+        var model = new ComboBox { Style = Ui.Style("ModelPicker"), FlowDirection = FlowDirection.LeftToRight, FontFamily = (FontFamily)FindResource("MonoFont"), FontSize = 13.5 };
+        System.Windows.Automation.AutomationProperties.SetName(model, "מודל");
+        panel.Children.Add(model);
+        var modelHint = Hint("");
+        panel.Children.Add(modelHint);
+        // The models are those of %APPDATA%\config.json; without a valid file the picker stays empty and the hint says why.
+        void ShowModels(string? selected)
+        {
+            model.ItemsSource = catalog.Models.Select(m => m.Model).ToArray(); model.SelectedItem = selected;
+            if (model.SelectedIndex < 0 && catalog.Models.Count > 0) model.SelectedIndex = 0;
+            model.IsEnabled = catalog.Models.Count > 0;
+            modelHint.Text = catalog.Problem ?? "המודל שישמש את כל העוזרים";
+            modelHint.Foreground = Theme.Brush(catalog.Problem != null ? "Danger" : "Secondary");
+            var exists = System.IO.File.Exists(AiConfigFile.Path);
+            missingCard.Visibility = exists ? Visibility.Collapsed : Visibility.Visible; editFile.Visibility = exists ? Visibility.Visible : Visibility.Collapsed;
+            modelHint.Visibility = exists ? Visibility.Visible : Visibility.Collapsed; // the card already says the file is missing
+        }
+        ShowModels(current.Ai.Model);
+
+        // Internal servers without a key (Authentication "none" or "windows") hide the whole key section.
         var keySection = new StackPanel { Margin = new Thickness(0, 22, 0, 0) }; panel.Children.Add(keySection);
         keySection.Children.Add(Label("מפתח API"));
         var card = new StackPanel();
@@ -72,9 +113,10 @@ public sealed class LocalSettingsPanel : UserControl
         // Typing a new key happens inside the card; nothing is stored until "שמירה".
         var key = new PasswordBox { Padding = new Thickness(10, 0, 10, 0), BorderThickness = new Thickness(0), Background = Brushes.Transparent, FlowDirection = FlowDirection.LeftToRight, VerticalContentAlignment = VerticalAlignment.Center, FontFamily = (FontFamily)FindResource("MonoFont"), FontSize = 13 };
         System.Windows.Automation.AutomationProperties.SetName(key, "מפתח API חדש");
-        var keyHint = new TextBlock { Text = "הדביקו כאן את מפתח ה־API", Foreground = Theme.Brush("Muted"), IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 12, 0) };
+        var keyHint = new TextBlock { Text = "הדביקו כאן את מפתח ה־API", Foreground = Theme.Brush("Muted"), IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 12, 0), HorizontalAlignment = HorizontalAlignment.Left, FlowDirection = FlowDirection.RightToLeft };
         key.PasswordChanged += (_, _) => keyHint.Visibility = key.Password.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-        var keyField = new Grid(); keyField.Children.Add(key); keyField.Children.Add(keyHint);
+        // The key is typed left to right, so its hint sits where typing starts.
+        var keyField = new Grid { FlowDirection = FlowDirection.LeftToRight }; keyField.Children.Add(key); keyField.Children.Add(keyHint);
         var keyBox = new Border { Child = keyField, CornerRadius = new CornerRadius(10), Background = Theme.Brush("Surface"), BorderBrush = Theme.Brush("FieldLine"), BorderThickness = new Thickness(1.5), Height = 44, Margin = new Thickness(0, 12, 0, 0) };
         key.GotKeyboardFocus += (_, _) => keyBox.BorderBrush = Theme.Brush("Accent"); key.LostKeyboardFocus += (_, _) => keyBox.BorderBrush = Theme.Brush("FieldLine");
         card.Children.Add(keyBox);
@@ -125,7 +167,7 @@ public sealed class LocalSettingsPanel : UserControl
         }
         void Result(string text, string token) { result.Text = text; result.Foreground = Theme.Brush(token); result.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed; }
         void Untested() { if (deleting || savedKey.Length == 0 && key.Password.Length == 0) Pill("חסר מפתח", "#F0F1F4", "#4A5160", null); else Pill("לא נבדק", "#F0F1F4", "#4A5160", null); }
-        bool NeedsKey() => catalog.Apply(current, (string)model.SelectedItem).Ai.Authentication is "bearer" or "header";
+        bool NeedsKey() => catalog.Models.Count > 0 && catalog.Apply(current, (string)model.SelectedItem).Ai.Authentication is "bearer" or "header";
         void ShowKey()
         {
             var showMask = savedKey.Length > 0 && !(editing && !deleting);
@@ -146,7 +188,7 @@ public sealed class LocalSettingsPanel : UserControl
             var settings = catalog.Apply(current, (string)model.SelectedItem).Ai;
             var needsKey = NeedsKey();
             keySection.Visibility = needsKey ? Visibility.Visible : Visibility.Collapsed;
-            keyless.Visibility = needsKey ? Visibility.Collapsed : Visibility.Visible;
+            keyless.Visibility = catalog.Models.Count > 0 && !needsKey ? Visibility.Visible : Visibility.Collapsed;
             keyless.Text = settings.Authentication == "windows" ? "המודל הזה מתחבר עם חשבון Windows שלכם. אין צורך במפתח." : "המודל הזה לא דורש מפתח API.";
             savedKey = AiCredentials.Resolve(settings) ?? "";
             editing = savedKey.Length == 0; deleting = false; key.Clear();
@@ -162,9 +204,18 @@ public sealed class LocalSettingsPanel : UserControl
         remove.Click += (_, _) => { editing = true; deleting = true; key.Clear(); ShowKey(); Untested(); Result("המפתח יימחק בלחיצה על \"שמירה\".", "Secondary"); replace.Focus(); };
         key.PasswordChanged += (_, _) => { if (editing) Untested(); };
         model.SelectionChanged += (_, _) => LockKey(); LockKey();
+        // Reload the file after editing it, without leaving the screen; the chosen model stays chosen if it still exists.
+        reload.Click += (_, _) =>
+        {
+            catalog = LocalAiCatalog.Load();
+            ShowModels((string?)model.SelectedItem ?? current.Ai.Model); LockKey();
+            status.Visibility = Visibility.Collapsed;
+            if (catalog.Problem == null) { modelHint.Text = $"קובץ ההגדרות נטען מחדש: {catalog.Models.Count} מודלים."; modelHint.Foreground = Theme.Brush("Success"); }
+        };
         Loaded += (_, _) => model.Focus();
         Config Read()
         {
+            if (catalog.Models.Count == 0) throw new InvalidOperationException(catalog.Problem ?? "לא הוגדרו מודלים בקובץ ההגדרות.");
             var value = catalog.Apply(current, (string)model.SelectedItem);
             value.Validate();
             return value;
@@ -178,7 +229,6 @@ public sealed class LocalSettingsPanel : UserControl
             try
             {
                 using var ai = new AiClient(Read());
-                ai.WaitingForRateLimit = delay => Dispatcher.BeginInvoke(() => Result($"ממתין למכסת ה־API · כ־{Math.Ceiling(delay.TotalSeconds)} שניות…", "Secondary"));
                 await ai.TestConnectionAsync(editing && !string.IsNullOrWhiteSpace(key.Password) ? key.Password.Trim() : null, cancellation.Token);
                 Pill("מחובר", "#DCFCE7", "#166534", "#16A34A"); Result("החיבור תקין.", "Success");
             }

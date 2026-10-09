@@ -4,7 +4,7 @@
   <Style x:Key="FieldLabel" TargetType="TextBlock"><Setter Property="FontSize" Value="14"/><Setter Property="FontWeight" Value="Bold"/></Style>
   <Style x:Key="Optional" TargetType="TextBlock"><Setter Property="FontSize" Value="12.5"/><Setter Property="Foreground" Value="{DynamicResource Muted}"/><Setter Property="Margin" Value="6,0,0,0"/><Setter Property="VerticalAlignment" Value="Bottom"/></Style>
   <Style x:Key="Hint" TargetType="TextBlock"><Setter Property="FontSize" Value="12.5"/><Setter Property="Foreground" Value="{DynamicResource Secondary}"/><Setter Property="TextWrapping" Value="Wrap"/><Setter Property="LineHeight" Value="18"/></Style>
-  <Style x:Key="Placeholder" TargetType="TextBlock"><Setter Property="Foreground" Value="{DynamicResource Muted}"/><Setter Property="IsHitTestVisible" Value="False"/><Setter Property="VerticalAlignment" Value="Center"/><Setter Property="Margin" Value="12,0"/><Setter Property="FontSize" Value="14"/></Style>
+  <Style x:Key="Placeholder" TargetType="TextBlock"><Setter Property="Foreground" Value="{DynamicResource Muted}"/><Setter Property="IsHitTestVisible" Value="False"/><Setter Property="VerticalAlignment" Value="Center"/><Setter Property="Margin" Value="13.5,0"/><Setter Property="FontSize" Value="14"/></Style>
  </UserControl.Resources>
  <Grid>
   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
@@ -48,12 +48,12 @@
      <Rectangle RadiusX="14" RadiusY="14" Stroke="#C3C8D0" StrokeThickness="1.5" StrokeDashArray="4 3" Fill="{DynamicResource Surface}"/>
      <StackPanel Margin="12">
       <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-       <Grid><TextBox x:Name="FirstPath" Style="{StaticResource FieldBox}" FlowDirection="LeftToRight" FontFamily="{StaticResource MonoFont}" FontSize="13" KeyDown="FirstPathKey" TextChanged="PathTyped" AutomationProperties.Name="נתיב תיקייה או קובץ"/>
-        <TextBlock x:Name="FirstPathHint" Text="C:\Docs" Style="{StaticResource Placeholder}" FlowDirection="LeftToRight" FontFamily="{StaticResource MonoFont}" FontSize="13" HorizontalAlignment="Left"/></Grid>
-       <Button Grid.Column="1" Style="{StaticResource SecondaryButton}" Content="עיון…" Margin="8,0,0,0" MinHeight="44" Click="BrowseFirst" ToolTip="בחירת תיקייה" AutomationProperties.Name="עיון: בחירת תיקייה"/>
-       <Button Grid.Column="2" Style="{StaticResource SecondaryButton}" Content="הוספה" Margin="6,0,0,0" MinHeight="44" Click="AddFirst" AutomationProperties.Name="הוספת הנתיב"/>
+       <Grid FlowDirection="LeftToRight"><TextBox x:Name="FirstPath" Style="{StaticResource FieldBox}" FontFamily="{StaticResource MonoFont}" FontSize="13" KeyDown="FirstPathKey" TextChanged="PathTyped" AutomationProperties.Name="נתיב תיקייה או קובץ"/>
+        <TextBlock x:Name="FirstPathHint" Text="C:\Docs" Style="{StaticResource Placeholder}" FontFamily="{StaticResource MonoFont}" FontSize="13" HorizontalAlignment="Left"/></Grid>
+       <Button Grid.Column="1" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" MinHeight="44" Padding="10,0" Click="BrowseFirst" ToolTip="בחירת תיקייה" AutomationProperties.Name="עיון: בחירת תיקייה"><StackPanel Orientation="Horizontal"><local:Icon Kind="folder" Size="16" StrokeWidth="2" Margin="0,0,6,0"/><TextBlock Text="עיון" VerticalAlignment="Center"/></StackPanel></Button>
+       <Button Grid.Column="2" Style="{StaticResource SecondaryButton}" Margin="6,0,0,0" MinHeight="44" Width="44" Padding="0" Click="BrowseFileFirst" ToolTip="בחירת מסמך מסוים" AutomationProperties.Name="בחירת מסמך מסוים"><local:Icon Kind="file" Size="18" StrokeWidth="2"/></Button>
       </Grid>
-      <TextBlock Text="לקובץ מסוים, הדביקו את הנתיב המלא שלו." Style="{StaticResource Hint}" Margin="2,8,0,0"/>
+      <Button Style="{StaticResource AssistantButton}" Content="הוספה" MinHeight="40" Padding="18,6" Margin="0,10,0,0" HorizontalAlignment="Left" Click="AddFirst" AutomationProperties.Name="הוספת הנתיב"/>
      </StackPanel>
     </Grid>
     <Border x:Name="FolderCard" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="14" Visibility="Collapsed">
@@ -61,15 +61,16 @@
       <StackPanel x:Name="PathRows"/>
       <Border BorderBrush="{DynamicResource Divider}" BorderThickness="0,1,0,0">
        <Grid>
-        <Button x:Name="AddFolderButton" Style="{StaticResource RowButton}" local:Ui.CornerRadius="0,0,14,14" HorizontalContentAlignment="Center" Foreground="{DynamicResource Link}" Click="ShowAddFolder" AutomationProperties.Name="הוספת תיקייה">
-         <StackPanel Orientation="Horizontal"><local:Icon Kind="plus" Size="17" StrokeWidth="2.2" Margin="0,0,6,0"/><TextBlock Text="הוספת תיקייה" FontWeight="SemiBold"/></StackPanel>
+        <Button x:Name="AddFolderButton" Style="{StaticResource RowButton}" local:Ui.CornerRadius="0,0,14,14" HorizontalContentAlignment="Center" Foreground="{DynamicResource Link}" Click="ShowAddFolder" AutomationProperties.Name="הוספת תיקייה או מסמך">
+         <StackPanel Orientation="Horizontal"><local:Icon Kind="plus" Size="17" StrokeWidth="2.2" Margin="0,0,6,0"/><TextBlock Text="הוספת תיקייה או מסמך" FontWeight="SemiBold"/></StackPanel>
         </Button>
         <StackPanel x:Name="AddFolderPanel" Margin="12" Visibility="Collapsed">
-         <TextBlock Text="נתיב התיקייה או הקובץ" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,6"/>
-         <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-          <Grid><TextBox x:Name="NewPath" Style="{StaticResource FieldBox}" FlowDirection="LeftToRight" FontFamily="{StaticResource MonoFont}" FontSize="13" KeyDown="NewPathKey" TextChanged="PathTyped" AutomationProperties.Name="נתיב תיקייה או קובץ"/>
-           <TextBlock x:Name="NewPathHint" Text="C:\Docs" Style="{StaticResource Placeholder}" FlowDirection="LeftToRight" FontFamily="{StaticResource MonoFont}" FontSize="13" HorizontalAlignment="Left"/></Grid>
-          <Button Grid.Column="1" Style="{StaticResource SecondaryButton}" Content="עיון…" Margin="8,0,0,0" MinHeight="44" Click="BrowseNew" ToolTip="בחירת תיקייה" AutomationProperties.Name="עיון: בחירת תיקייה"/>
+         <TextBlock Text="נתיב התיקייה או המסמך" FontSize="13" FontWeight="SemiBold" Margin="0,0,0,6"/>
+         <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+          <Grid FlowDirection="LeftToRight"><TextBox x:Name="NewPath" Style="{StaticResource FieldBox}" FontFamily="{StaticResource MonoFont}" FontSize="13" KeyDown="NewPathKey" TextChanged="PathTyped" AutomationProperties.Name="נתיב תיקייה או קובץ"/>
+           <TextBlock x:Name="NewPathHint" Text="C:\Docs" Style="{StaticResource Placeholder}" FontFamily="{StaticResource MonoFont}" FontSize="13" HorizontalAlignment="Left"/></Grid>
+          <Button Grid.Column="1" Style="{StaticResource SecondaryButton}" Margin="8,0,0,0" MinHeight="44" Padding="10,0" Click="BrowseNew" ToolTip="בחירת תיקייה" AutomationProperties.Name="עיון: בחירת תיקייה"><StackPanel Orientation="Horizontal"><local:Icon Kind="folder" Size="16" StrokeWidth="2" Margin="0,0,6,0"/><TextBlock Text="עיון" VerticalAlignment="Center"/></StackPanel></Button>
+          <Button Grid.Column="2" Style="{StaticResource SecondaryButton}" Margin="6,0,0,0" MinHeight="44" Width="44" Padding="0" Click="BrowseFileNew" ToolTip="בחירת מסמך מסוים" AutomationProperties.Name="בחירת מסמך מסוים"><local:Icon Kind="file" Size="18" StrokeWidth="2"/></Button>
          </Grid>
          <StackPanel Orientation="Horizontal" HorizontalAlignment="Left" Margin="0,10,0,0">
           <Button Style="{StaticResource AssistantButton}" x:Name="AddNewButton" Content="הוספה" MinHeight="40" Padding="18,6" Click="AddNew"/>
@@ -84,7 +85,7 @@
 
     <StackPanel Orientation="Horizontal" Margin="0,18,0,8"><TextBlock Text="הנחיות לעוזר" Style="{StaticResource FieldLabel}"/><TextBlock Text="(לא חובה)" Style="{StaticResource Optional}"/></StackPanel>
     <Grid><TextBox x:Name="CustomPrompt" Style="{StaticResource FieldBox}" Height="80" AcceptsReturn="True" TextWrapping="Wrap" MaxLength="6000" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" Padding="10,8" TextChanged="PromptChanged" AutomationProperties.Name="הנחיות לעוזר (לא חובה)"/>
-     <TextBlock x:Name="PromptHint" Text="לדוגמה: תענה בעברית פשוטה ובקצרה." Style="{StaticResource Placeholder}" VerticalAlignment="Top" Margin="12,10,12,0" TextWrapping="Wrap"/></Grid>
+     <TextBlock x:Name="PromptHint" Text="לדוגמה: תענה בעברית פשוטה ובקצרה." Style="{StaticResource Placeholder}" VerticalAlignment="Top" Margin="13.5,9.5,13.5,0" TextWrapping="Wrap"/></Grid>
 
     <!-- Edit only: delete, behind a confirmation. -->
     <Border x:Name="DangerCard" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource DangerLine}" BorderThickness="1" CornerRadius="14" Padding="14,12" Margin="0,18,0,0">

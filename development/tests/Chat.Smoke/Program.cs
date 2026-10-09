@@ -119,7 +119,11 @@ internal static class Program
    if (!removed || removedHistory != false) throw new Exception("Confirmed delete did not run, or removed the conversations without being asked.");
    Console.WriteLine("PASS: edit form delete needs confirmation; conversations removed by default, kept when unticked");
 
+   // Never the real %APPDATA%\config.json: a test file with one fictional model.
+   AiConfigFile.Path = Path.Combine(temp, "config.json");
+   File.WriteAllText(AiConfigFile.Path, "[ { \"name\": \"test\", \"apiKey\": \"\", \"models\": [ { \"id\": \"smoke-model\", \"url\": \"https://ai.example/v1\" } ] } ]");
    var config = LocalAiCatalog.Load().Apply(new Config(), null);
+   if (config.Ai.Model != "smoke-model") throw new Exception("config.json models were not loaded.");
    AiCredentials.Save(config.Ai, "ui-smoke-dummy-key-1234");
    var settings = new LocalSettingsPanel(config); Layout(settings, 360, 640);
    if (!Descendants(settings).OfType<TextBlock>().Any(t => t.Text == "•••• 1234")) throw new Exception("Saved key is not shown masked.");

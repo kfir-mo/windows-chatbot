@@ -19,7 +19,7 @@ opens a menu (open / hide / exit); "הסתרה" there hides the corner button to
   answer. Each question can use "מהיר", "רגיל" (default) or "מעמיק" (see `AnswerMode` in `ChatEngine.cs`).
 
 Everything runs on the user's PC. There is no server. The AI is any OpenAI-compatible HTTP endpoint (OpenAI,
-Azure OpenAI, vLLM, Ollama, LM Studio, an internal gateway…) configured in `ai.config.json`.
+Azure OpenAI, vLLM, LiteLLM, an internal gateway…) configured in `%APPDATA%\config.json` on each PC.
 
 Supported documents: DOCX, PPTX (including speaker notes), PDF with a text layer, XLSX (stored cell values),
 TXT, Markdown, CSV, HTML and JSON (read as "key: value" lines). Not supported: legacy DOC/PPT/XLS (save them as DOCX/PPTX/XLSX) and scanned PDFs
@@ -30,11 +30,9 @@ TXT, Markdown, CSV, HTML and JSON (read as "key: value" lines). Not supported: l
 ```
 (repository root)
   Chaty.exe              the app (self-contained, no install, no .NET needed on the PC)
-  ai.config.json         deployment configuration: models, rate limit, search limits (edit this, see §3)
-  README.md              user/admin readme
-  CLAUDE.md              short orientation for AI coding assistants
+  AI-INSTRUCTIONS.md     this file
+  README.md              short user/admin readme
   development/           source code — only needed to change or rebuild the app
-    AI-INSTRUCTIONS.md            this file
     scripts/publish-local.ps1     builds Chaty.exe into the root folder (use -Offline on a closed network)
     scripts/prepare-offline.ps1   bundles NuGet packages into development/packages (run once, with internet)
     packages/, nuget.offline.config   the offline package bundle (created by prepare-offline.ps1)
@@ -51,92 +49,68 @@ lives on the `advance-edition` branch.)
 Per-user data is **not** in this folder. It lives in `%LOCALAPPDATA%\WindowsChat.Local\`, encrypted with Windows
 DPAPI for the current user: `local-settings.bin` (chosen model), `ai-key-*.bin` (API keys), `chat-types.bin`
 (assistants), `conversations.bin` (history), `chat-looks.bin` (assistant colors/icons), `index7-*.bin` (document
-index caches, safe to delete — they are rebuilt), `ai-request-budget.bin` (rate-limit state). Deleting the folder
+index caches, safe to delete — they are rebuilt; caches no assistant uses are deleted at startup),
+`document-counts.bin` (last document count per assistant, for the switcher).
+Deleting the folder
 resets Chaty for that user.
 
-## 3. Configuration: `ai.config.json`
+## 3. Configuration: `%APPDATA%\config.json`
 
-`ai.config.json` sits beside `Chaty.exe`. It contains **no secrets** — users type their key in the app
-(⋯ menu → "הגדרות AI"), and it is stored encrypted per user. Publishing a new build never overwrites an
-existing `ai.config.json`. Restart Chaty after editing. The file may contain `//` comments and trailing commas.
-If the file is invalid, Chaty shows the error in its status line ("בדקו את ai.config.json: …").
-
-### Full example
+Only `Chaty.exe` is handed out. The AI configuration is one file per PC (per Windows user):
+`%APPDATA%\config.json` (`C:\Users\<user>\AppData\Roaming\config.json`), the closed network's endpoint JSON
+(`AiConfigFile.cs`). It is the **only** source of models: without it (or when it is invalid) the model picker in
+"הגדרות AI" is empty, the reason and the expected path are shown under it, and messages can't be sent. The file is
+read at startup and every time "הגדרות AI" opens, so an edit applies without a restart.
 
 ```jsonc
-{
-  "RequestsPerMinute": 18,          // shared AI-call budget per user, 1–600 (see "Rate limit")
-  "SearchSubfolders": true,         // index sub-folders of assistant folders
-  "Documents": {                    // optional; omitted values use these defaults
-    "ChunkCharacters": 1800,        // 200–10000: size of indexed text passages
-    "MaxFileMegabytes": 50,         // 1–500: larger files are skipped (listed as "not included")
-    "MaxPassages": 8,               // 1–30: passages sent to the AI per answer
-    "EvidenceCharacters": 4800,     // 500–30000: total document text sent to the AI per answer
-    "ExcerptCharacters": 1000       // 200–4000: max length of one passage sent to the AI
-  },
-  "History": {                      // optional; omitted values use these defaults
-    "RecentMessages": 8,            // 2–40: previous messages sent as conversation context
-    "SummaryCharacters": 2000,      // 100–10000
-    "MessageCharacters": 6000,      // 100–20000: longest question a user may send
-    "ContextCharacters": 2000       // 500–12000: total conversation context sent to the AI
-  },
-  "Models": [                       // shown in the model picker; the first is the default
-    {
-      "Model": "gpt-4o-mini",                                   // exact model id sent to the endpoint (unique)
-      "Endpoint": "https://api.openai.com/v1/chat/completions", // full URL including the API route
-      "AllowedHosts": ["api.openai.com"],                       // must contain the endpoint's host name
-      "Format": "chat-completions",                             // or "responses" (OpenAI Responses API)
-      "Authentication": "bearer",                               // bearer | header | none | windows
-      "HeaderName": "api-key",                                  // only for "header" authentication
-      "AllowHttp": false,                                       // true allows plain http:// (internal servers)
-      "UseProxy": false,                                        // true uses the Windows proxy settings
-      "TimeoutSeconds": 60,                                     // 1–600 per AI call
-      "MaxOutputTokens": 1600,                                  // 1–16000
-      "MaxTokensField": "",                                     // "" auto | "max_tokens" | "max_completion_tokens" | "max_output_tokens" | "none"
-      "SendStoreFalse": true,                                   // sends "store": false; set false if the server rejects it
-      "Temperature": null,                                      // optional 0–2; omitted when null
-      "SystemPrompt": "",                                       // optional text prepended to every AI instruction
-      "InputTokensPath": "usage.prompt_tokens",                 // where token usage is in the response (optional)
-      "OutputTokensPath": "usage.completion_tokens"
-    }
-  ]
-}
+[
+  {
+    "name": "GAIA", "vendor": "customendpoint",
+    "apiKey": "",                      // usually empty: the user types the key in "הגדרות AI" (DPAPI-encrypted)
+    "apiType": "chat-completions",     // or "responses"
+    "models": [
+      { "id": "GAIA-chat",             // sent as "model"; id = name in this network
+        "name": "GAIA-chat",
+        "url": "https://…/v1/chat/completions",   // full endpoint, or the base (…/v1): /chat/completions is added
+        "toolCalling": true, "vision": true,
+        "thinking": true,              // reasoning model; missing = false (e.g. the code model)
+        "maxInputTokens": 128000,      // sizes how much of an attached document is sent
+        "maxOutputTokens": 16000 }     // the output limit; reasoning counts toward it
+    ]
+  }
+]
 ```
 
-### How to add a model
+Each model gets `AllowedHosts` = its url's host, `AllowHttp` only for an `http://` url, `bearer` authentication,
+`max_tokens` (`max_completion_tokens` for api.openai.com, which rejects `max_tokens` for reasoning models), no
+`store` field, and a 120 s timeout (300 s for `thinking` models). A non-empty `apiKey` is used as is and never copied
+anywhere; keys typed in the app are remembered per server address, so models on one server share a key. Search and
+memory limits are the built-in defaults (`DocumentLimits`, `HistoryOptions`).
 
-Add an object to `Models` (model names must be unique), restart Chaty, open "הגדרות AI", pick the model, enter
-the key if it needs one ("החלפת מפתח"), press "בדיקת חיבור" (connection test), then "שמירה". Keys are remembered per
-endpoint address + authentication type, so models on the same server share one key.
-
-Recipes:
-
-| Server | Settings |
-|---|---|
-| OpenAI | `Endpoint` `https://api.openai.com/v1/chat/completions`, `Authentication` `bearer` |
-| Azure OpenAI | `Endpoint` `https://<name>.openai.azure.com/openai/deployments/<deployment>/chat/completions?api-version=2024-10-21`, `AllowedHosts` `["<name>.openai.azure.com"]`, `Authentication` `header`, `HeaderName` `api-key`, `Model` = deployment name |
-| vLLM / LM Studio / internal OpenAI-compatible gateway | `Endpoint` `http://ai-server:8000/v1/chat/completions`, `AllowHttp` `true` (only if it has no HTTPS), `Authentication` `none` (or `bearer` if it wants a token), `MaxTokensField` `max_tokens` for older servers |
-| Ollama | `Endpoint` `http://ollama-host:11434/v1/chat/completions`, `AllowHttp` `true`, `Authentication` `none`, `MaxTokensField` `max_tokens`, `SendStoreFalse` `false` |
-| Gateway with Windows login (Kerberos/NTLM) | `Authentication` `windows` — the user's Windows account is sent, no key field is shown |
-
-With `Authentication` `none` or `windows` the key section is hidden in Settings.
+Reasoning models: `reasoning_content` and a leading `<think>…</think>` are never shown as the answer. If the thinking
+uses all of `max_tokens` the server returns `content: null` with `finish_reason: "length"`, and Chaty says so.
 
 HTTPS certificates are validated against the **Windows certificate store**. For an internal certificate
 authority, install its root certificate in Windows (by IT), don't disable validation. Redirects are blocked: the
-`Endpoint` must be the final URL.
-
-The answer pipeline needs a model that follows JSON-format instructions reasonably well (it returns
-`{"answer": …, "citations": […]}`). Small local models may answer "not enough information" more often; prefer
-instruction-tuned models of roughly 7B parameters or more.
+url must be the final address.
 
 ### Rate limit
 
-`RequestsPerMinute` is a budget shared by all models for one Windows user, persisted across restarts. It counts
-every AI call (calls are not spaced out — Chaty waits only when the last minute's budget is full): one question in a
-document assistant normally uses **3 calls** (route the request, draft the
-answer, review the answer); general chat uses 1; the connection test uses 1. When the budget is used up Chaty
-waits and shows "ממתין למכסת ה־API". An HTTP 429 from the server pauses for at least 61 seconds (or the server's
-`Retry-After`). Keep it below the provider's real limit. For an internal server without limits use e.g. 120–600.
+Chaty has **no request budget of its own**: calls go out until the server answers HTTP 429. Then
+`RateLimitException` reads the limit and the reset time from the server's message (LiteLLM style: "… Current limit: 15
+… Limit resets at: 2026-10-07 11:32:10 UTC"; or `Retry-After`) and the chat shows "הגעתם למגבלת הבקשות … אפשר לשלוח
+שוב בשעה …". The message itself is never shown, because it names the API key. A 429 on a review call keeps the
+unreviewed draft, so a question near the limit still gets an answer. One question in a document assistant normally
+uses **3 calls** (route, draft, review); "מהיר" uses 1 (plus a planner call and a second search only when the
+user's own words find nothing to answer from); general chat uses 1.
+
+### Attaching a document (general chat)
+
+The paperclip in the general chat's composer (or dropping a file on it) attaches one document: its text is extracted
+like an indexed file (`Attachments.cs`), shown as a chip on the message, and kept with the conversation
+(`ChatMessage.File`, DPAPI-encrypted) so follow-up questions still have it. Every general-chat request sends the
+conversation's attachments as `attachedDocuments`, newest first, cut to `(maxInputTokens − maxOutputTokens − 3000) × 2`
+characters (24,000 when `maxInputTokens` is unknown). Assistants with folders have no attach button.
 
 ## 4. How it works (code map)
 
@@ -155,8 +129,9 @@ waits and shows "ממתין למכסת ה־API". An HTTP 429 from the server pau
 review prompt), `RequestPlanner.cs` (routing), `Configuration.cs` (`AnswerPrompt`). Per-deployment additions go
 in a model's `SystemPrompt`; per-assistant ones in the assistant's custom instructions — prefer those over code.
 
-**HTTP** — `AiClient.cs` (request body, auth, error messages; never shows response bodies), `AiRequestGate.cs`
-(rate limit), `AiCredentials.cs` (encrypted keys), `LocalAiCatalog.cs` (reads `ai.config.json`),
+**HTTP** — `AiClient.cs` (request body, auth, error messages, reasoning-model answers; never shows response bodies),
+`AiCredentials.cs` (encrypted keys, `RateLimitException`), `AiConfigFile.cs` (reads `%APPDATA%\config.json`),
+`LocalAiCatalog.cs` (the models and the built-in limits),
 `Configuration.cs` (`Config`, all limits and their validation ranges).
 
 **Indexing** — `DocumentIndex.cs`: walks the assistant's folders (a source that is a single file is indexed alone) (skips hidden/system files and Office lock files
@@ -233,24 +208,26 @@ If `dotnet` is not on PATH, use `& "$env:USERPROFILE\.dotnet\dotnet.exe"`.
 2. **Answers only from evidence** for document assistants; keep citations, the reviewer call, and the access
    re-checks (`Access.CanRead`, `RedactInaccessible`) in `ChatEngine`.
 3. **No secrets in files or logs.** Keys stay DPAPI-encrypted in the user profile; never print response bodies
-   (they can echo credentials); never write keys into `ai.config.json`.
+   (they can echo credentials); tests point `AiConfigFile.Path` and `Storage.Root` to temp folders.
 4. **`AllowedHosts` allow-list and no redirects** stay enforced (`Config.Validate`, `AiClient`).
 5. **Tests never touch a real profile**: `tests/Knowledge.Tests/TestProfile.cs` moves `Storage.Root` to a temp
    folder; do the same in any new test or tool.
 6. **Low memory**: Chaty renders in software mode and releases idle memory (`MemoryTrim`); the search index
    uses compact arrays. Measure (Task Manager → Details → "Memory (private working set)") before adding heavy
-   libraries or always-on timers. Typical: ~25–30 MB while used, ~5–10 MB idle.
+   libraries or always-on timers. Only the active assistant's index stays in memory. Measured: ~10–12 MB working
+   set while hidden, 0% CPU when idle.
 7. After any change: build, run both test suites, run `scripts/publish-local.ps1`, start `Chaty.exe` and try it.
 
 ## 7. Troubleshooting
 
 | Symptom | Cause / fix |
 |---|---|
-| "בדקו את ai.config.json: …" | Invalid JSON or a value outside its range (see §3). The message names the model. |
+| Empty model picker, red text under it | `%APPDATA%\config.json` is missing or invalid; the text says which (with the JSON line number) and shows the path. |
 | "כתובת AI אינה מורשית בהגדרות" | Endpoint host missing from `AllowedHosts`, or `http://` without `AllowHttp: true`. |
-| "השרת דחה את מבנה הבקשה" (HTTP 400) | Wrong `Format`, model name, or the server rejects a field: try `MaxTokensField: "max_tokens"` and `SendStoreFalse: false`. |
-| HTTP 401/403 | Wrong key, or wrong `Authentication`/`HeaderName`. |
+| "השרת דחה את מבנה הבקשה" (HTTP 400) | Wrong model id or apiType, or the server rejects a field. |
+| HTTP 401/403 | Wrong key ("הגדרות AI" → "החלפת מפתח"). |
 | "לא ניתן להתחבר לשירות ה-AI" | Network/DNS/firewall, or an HTTPS certificate Windows doesn't trust. |
-| Waiting for the API budget too often | Raise `RequestsPerMinute` (if the server allows it). |
+| "הגעתם למגבלת הבקשות של שרת ה־AI" | The server's own 429. Wait for the time shown, or ask for a higher limit on the server. |
+| "המודל הגיע למגבלת אורך התשובה" | A reasoning model spent `maxOutputTokens` on thinking. Raise `maxOutputTokens` in the JSON, or use a model without thinking. |
 | A document isn't used | Hover the header status line: skipped files and reasons are listed. Scanned PDFs and DOC/PPT/XLS are not supported. |
-| Answers miss information | Raise `Documents.MaxPassages` / `EvidenceCharacters` (more text per answer = more tokens), or add the right folder to the assistant. |
+| Answers miss information | Try "רגיל" or "מעמיק" (the AI adds the words documents use), or add the right folder to the assistant. |

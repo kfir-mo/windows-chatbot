@@ -27,10 +27,11 @@
 
     <!-- Header: solid in the active assistant's color, white text and icons. -->
     <Border x:Name="HeaderBar" Background="{DynamicResource AssistantBrush}" Padding="10,0,8,0" MouseLeftButtonDown="BackgroundDoubleClick">
-     <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-      <!-- Symbol and name are one block: it lights up as a whole while the assistant switcher is open. -->
-      <Border x:Name="IdentityGroup" CornerRadius="14" HorizontalAlignment="Left" VerticalAlignment="Center" Padding="2"><StackPanel Orientation="Horizontal">
-      <Button x:Name="LookButton" Style="{StaticResource HeaderIconButton}" local:Ui.CornerRadius="12" Background="Transparent" VerticalAlignment="Center" Click="PickLook" ToolTip="מראה העוזר" AutomationProperties.Name="שינוי סמל וצבע">
+     <Grid x:Name="HeaderGrid"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <!-- Symbol and name are one block: it lights up as a whole while the assistant switcher is open. Docked, not stacked:
+           the name gets all the width up to the header's buttons, and only then ends with "…". -->
+      <Border x:Name="IdentityGroup" CornerRadius="14" HorizontalAlignment="Left" VerticalAlignment="Center" Padding="2"><DockPanel>
+      <Button x:Name="LookButton" DockPanel.Dock="Left" Style="{StaticResource HeaderIconButton}" local:Ui.CornerRadius="12" Background="Transparent" VerticalAlignment="Center" Click="PickLook" ToolTip="מראה העוזר" AutomationProperties.Name="שינוי סמל וצבע">
        <!-- Hovering the symbol shows a small pencil: it opens the icon and color picker. -->
        <Grid Width="40" Height="40"><local:Icon x:Name="HeaderIcon" Kind="chat" Size="20" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         <Border Width="16" Height="16" CornerRadius="8" Background="White" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,2,2" IsHitTestVisible="False">
@@ -39,12 +40,14 @@
        </Grid></Button>
       <Button x:Name="ChatTypePicker" Style="{StaticResource HeaderIconButton}" Width="Auto" Height="Auto" MinHeight="44" Padding="8,2" Margin="2,0,0,0" HorizontalAlignment="Left" HorizontalContentAlignment="Left" FontFamily="{StaticResource UiFont}" Click="PickChatType" ToolTip="החלפת עוזר" AutomationProperties.Name="החלפת עוזר">
        <StackPanel>
-        <StackPanel Orientation="Horizontal"><TextBlock x:Name="ChatTypeName" Text="כללי" FontSize="15" FontWeight="Bold" MaxWidth="150" TextTrimming="CharacterEllipsis"/><local:Icon x:Name="PickerChevron" Kind="chevron-down" Size="14" StrokeWidth="2.2" Margin="6,2,0,0" VerticalAlignment="Center"/></StackPanel>
-        <TextBlock x:Name="Status" Text="שיחה חופשית עם AI" FontSize="12.5" Opacity="0.92" Margin="0,1,0,0" MaxWidth="190" TextTrimming="CharacterEllipsis" ToolTipService.ShowDuration="20000"/>
+        <DockPanel><local:Icon x:Name="PickerChevron" DockPanel.Dock="Right" Kind="chevron-down" Size="14" StrokeWidth="2.2" Margin="6,2,0,0" VerticalAlignment="Center"/><TextBlock x:Name="ChatTypeName" Text="כללי" FontSize="15" FontWeight="Bold" TextWrapping="Wrap" LineHeight="19" LineStackingStrategy="BlockLineHeight" MaxHeight="38" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/></DockPanel>
+        <!-- Empty (hidden) in a general chat that has started: its title is the topic and needs no "כללי" under it. -->
+        <TextBlock x:Name="Status" Text="שיחה חופשית עם AI" FontSize="12" Opacity="0.92" Margin="0,1,0,0" LineHeight="15" MaxHeight="30" TextWrapping="Wrap" TextTrimming="CharacterEllipsis" ToolTipService.ShowDuration="20000">
+         <TextBlock.Style><Style TargetType="TextBlock"><Style.Triggers><Trigger Property="Text" Value=""><Setter Property="Visibility" Value="Collapsed"/></Trigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
        </StackPanel>
       </Button>
-      </StackPanel></Border>
-      <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+      </DockPanel></Border>
+      <StackPanel x:Name="HeaderActions" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
        <Button x:Name="NewChatButton" Style="{StaticResource HeaderIconButton}" ToolTip="שיחה חדשה" AutomationProperties.Name="שיחה חדשה" Click="NewChat"><local:Icon Kind="plus" Size="20" StrokeWidth="2"/></Button>
        <Button x:Name="HistoryTab" Style="{StaticResource HeaderIconButton}" ToolTip="היסטוריה" AutomationProperties.Name="היסטוריה" Click="History"><local:Icon Kind="history" Size="20" StrokeWidth="2"/></Button>
        <Button x:Name="MenuButton" Style="{StaticResource HeaderIconButton}" ToolTip="תפריט" AutomationProperties.Name="תפריט" Click="ShowOptions"><local:Icon Kind="more" Size="20"/></Button>
@@ -93,10 +96,25 @@
       </StackPanel>
      </ScrollViewer>
 
-     <!-- Composer: one row in general chat; assistants with folders add the fast/deep switch under the text. -->
-     <Border x:Name="Composer" Grid.Row="1" Margin="12,4,12,0" CornerRadius="16" BorderThickness="1.5" Padding="6" Background="{DynamicResource Surface}">
+     <!-- Notices: long messages (errors, guidance, warnings) in full above the composer; the header keeps its short summary. -->
+     <Border x:Name="NoticeBar" VerticalAlignment="Bottom" Margin="12,0,12,6" Padding="12,9,6,9" CornerRadius="12" Background="{DynamicResource Surface}" BorderThickness="1" BorderBrush="{DynamicResource Line}" Visibility="Collapsed" Panel.ZIndex="2" AutomationProperties.LiveSetting="Assertive">
+      <Border.Effect><DropShadowEffect BlurRadius="14" ShadowDepth="2" Opacity="0.10"/></Border.Effect>
+      <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+       <local:Icon x:Name="NoticeIcon" Kind="info" Size="17" StrokeWidth="2" VerticalAlignment="Top" Margin="0,1,8,0"/>
+       <TextBlock x:Name="NoticeText" Grid.Column="1" TextWrapping="Wrap" FontSize="13" LineHeight="19" VerticalAlignment="Center"/>
+       <Button Grid.Column="2" Style="{StaticResource SmallGhostButton}" Padding="4" Margin="6,-3,0,-3" VerticalAlignment="Top" Click="CloseNotice" ToolTip="סגירה" AutomationProperties.Name="סגירת ההודעה"><local:Icon Kind="close" Size="13" StrokeWidth="2.2"/></Button>
+      </Grid>
+     </Border>
+     <!-- Composer: the text on top, the fast/normal/deep switch under it (general chat and assistants with folders). -->
+     <Border x:Name="Composer" Grid.Row="1" AllowDrop="True" PreviewDragOver="ComposerDragOver" PreviewDrop="ComposerDrop" Margin="12,4,12,0" CornerRadius="16" BorderThickness="1.5" Padding="6" Background="{DynamicResource Surface}">
       <Border.Style><Style TargetType="Border"><Setter Property="BorderBrush" Value="{DynamicResource FieldLine}"/><Style.Triggers><Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter Property="BorderBrush" Value="{DynamicResource AssistantBrush}"/></Trigger></Style.Triggers></Style></Border.Style>
-      <Grid x:Name="ComposerGrid"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+      <StackPanel>
+      <!-- A document attached in general chat waits here until it is sent with the message. -->
+      <Border x:Name="AttachmentChip" Visibility="Collapsed" HorizontalAlignment="Left" Margin="6,2,6,4" Padding="8,5,4,5" CornerRadius="10" Background="{DynamicResource Subtle}">
+       <StackPanel Orientation="Horizontal"><ContentControl x:Name="AttachmentBadge" Focusable="False" VerticalAlignment="Center"/><TextBlock x:Name="AttachmentName" FontSize="12.5" FontWeight="SemiBold" MaxWidth="220" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
+        <Button x:Name="RemoveAttachmentButton" Style="{StaticResource SmallGhostButton}" Padding="4" Margin="4,0,0,0" Click="RemoveAttachment" ToolTip="הסרת הקובץ" AutomationProperties.Name="הסרת הקובץ המצורף"><local:Icon Kind="close" Size="13" StrokeWidth="2.2"/></Button></StackPanel>
+      </Border>
+      <Grid x:Name="ComposerGrid"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
        <Grid x:Name="QuestionArea" VerticalAlignment="Center" Margin="8,0,6,0">
         <TextBox x:Name="Question" Background="Transparent" BorderThickness="0" AcceptsReturn="True" TextWrapping="Wrap" MinHeight="40" MaxHeight="110" Padding="0,9" FontSize="14" VerticalContentAlignment="Center" VerticalScrollBarVisibility="Auto" PreviewKeyDown="QuestionKey" AutomationProperties.Name="כתבו הודעה"/>
         <TextBlock x:Name="QuestionHint" Text="כתבו הודעה…" Foreground="{DynamicResource Muted}" IsHitTestVisible="False" Margin="2,0" VerticalAlignment="Center"><TextBlock.Style><Style TargetType="TextBlock"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding Text, ElementName=Question}" Value=""><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></TextBlock.Style></TextBlock>
@@ -110,11 +128,14 @@
          <RadioButton x:Name="DeepMode" Style="{StaticResource ModeSegment}" GroupName="AnswerMode" Checked="ModeChanged" ToolTip="מעמיק" AutomationProperties.Name="מעמיק"><StackPanel Orientation="Horizontal"><local:Icon Kind="search" Size="16" StrokeWidth="2.2"/><TextBlock x:Name="DeepLabel" Text="מעמיק" VerticalAlignment="Center" MaxWidth="0" Opacity="0"/></StackPanel></RadioButton>
         </StackPanel>
        </Border>
-       <Grid x:Name="SendArea" Grid.Column="1" VerticalAlignment="Bottom">
+       <!-- General chat only: attach a document for the AI to read (also by dropping a file on the composer). -->
+       <Button x:Name="AttachButton" Grid.Column="1" Style="{StaticResource IconButton}" local:Ui.CornerRadius="12" Foreground="{DynamicResource Secondary}" VerticalAlignment="Bottom" Margin="0,0,4,0" Click="AttachDocument" ToolTip="צירוף מסמך" AutomationProperties.Name="צירוף מסמך"><local:Icon Kind="paperclip" Size="19" StrokeWidth="2"/></Button>
+       <Grid x:Name="SendArea" Grid.Column="2" VerticalAlignment="Bottom">
         <Button x:Name="CancelButton" Style="{StaticResource IconButton}" local:Ui.CornerRadius="12" Background="{DynamicResource Subtle}" Foreground="{DynamicResource Ink}" Visibility="Collapsed" Click="Cancel" ToolTip="עצירה" AutomationProperties.Name="עצירת הפעולה"><local:Icon Kind="stop" Size="18"/></Button>
         <Button x:Name="SendButton" Style="{StaticResource SendButton}" Click="Send" ToolTip="שליחה · Enter" AutomationProperties.Name="שליחה"><local:Icon Kind="send" Size="20" StrokeWidth="2.2"/></Button>
        </Grid>
       </Grid>
+      </StackPanel>
      </Border>
      <TextBlock x:Name="Disclaimer" Grid.Row="2" Text="Chaty עלול לטעות. כדאי לבדוק מידע חשוב." FontSize="11.5" Foreground="{DynamicResource Muted}" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Margin="12,6,12,8"/>
     </Grid>

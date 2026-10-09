@@ -49,3 +49,27 @@ public static class AiErrors
         _ => "לא ניתן להשלים את בקשת ה-AI. בדקו את הגדרות החיבור (ai.config.json)."
     };
 }
+
+/// <summary>The server's own 429: there is no budget in Chaty, so this is where answering stops until the server's limit resets.</summary>
+public sealed class RateLimitException(string message, DateTimeOffset? resetsAt) : InvalidOperationException(message)
+{
+    public DateTimeOffset? ResetsAt { get; } = resetsAt;
+    /// <summary>Reads the limit and the reset time out of a LiteLLM-style message ("… Current limit: 15, Remaining: 0. Limit
+    /// resets at: 2026-10-07 11:32:10 UTC"); the message itself is never shown because it names the API key.</summary>
+    public static RateLimitException From(string? serverMessage, System.Net.Http.Headers.RetryConditionHeaderValue? retry, DateTimeOffset? now = null)
+    {
+        var at = now ?? DateTimeOffset.UtcNow;
+        DateTimeOffset? reset = retry?.Delta is { } delta ? at + delta : retry?.Date;
+        var text = serverMessage ?? "";
+        var resetMatch = System.Text.RegularExpressions.Regex.Match(text, @"resets at:\s*(\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2}(:\d{2}(\.\d+)?)?)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        if (resetMatch.Success && DateTimeOffset.TryParse(resetMatch.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.AssumeUniversal, out var parsed)) reset = parsed;
+        var limitMatch = System.Text.RegularExpressions.Regex.Match(text, @"Current limit:\s*(\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        var message = "הגעתם למגבלת הבקשות של שרת ה־AI" + (limitMatch.Success ? $" (עד {limitMatch.Groups[1].Value} בקשות)" : "") + ". ";
+        var wait = reset - at;
+        message += wait is not { } left || left <= TimeSpan.Zero ? "נסו שוב בעוד דקה."
+            : left < TimeSpan.FromMinutes(2) ? $"אפשר לשלוח שוב בעוד כ־{Math.Max(1, (int)Math.Ceiling(left.TotalSeconds))} שניות."
+            : reset!.Value.ToLocalTime().Date == at.ToLocalTime().Date ? $"אפשר לשלוח שוב בשעה {reset.Value.ToLocalTime():HH:mm}."
+            : $"אפשר לשלוח שוב ב־{reset.Value.ToLocalTime():dd/MM} בשעה {reset.Value.ToLocalTime():HH:mm}.";
+        return new(message, reset);
+    }
+}

@@ -6,41 +6,53 @@ namespace Knowledge.Core;
 // Everything an administrator may tune lives in ai.config.json beside Chaty.exe; see development/AI-INSTRUCTIONS.md.
 public sealed class LocalAiCatalog
 {
-    public const int MaxRequestsPerMinute = 600;
-    /// <summary>Shared budget across all models; counts planning, review, failures and connection tests.</summary>
-    public int RequestsPerMinute { get; set; } = 18;
     public bool SearchSubfolders { get; set; } = true;
-    /// <summary>Optional search/evidence limits. Omitted values keep the built-in defaults.</summary>
+    /// <summary>Search/evidence limits (built-in defaults).</summary>
     public DocumentLimits Documents { get; set; } = new();
-    /// <summary>Optional conversation-memory limits. Omitted values keep the built-in defaults.</summary>
+    /// <summary>Conversation-memory limits (built-in defaults).</summary>
     public HistoryOptions History { get; set; } = new();
-    public List<AiOptions> Models { get; set; } = [new()];
-    public static string FilePath => Path.Combine(Path.GetDirectoryName(Environment.ProcessPath)!, "ai.config.json");
-    public static LocalAiCatalog Load(string? path = null)
+    /// <summary>The models of %APPDATA%\config.json; empty until that file exists and is valid.</summary>
+    public List<AiOptions> Models { get; set; } = [];
+    /// <summary>apiKey values from the file, by model id. Usually empty: the user types the key in the app.</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public Dictionary<string, string> Keys { get; } = new(StringComparer.Ordinal);
+    /// <summary>Why there are no models (no file, unreadable or invalid JSON), shown under the empty model picker.</summary>
+    [System.Text.Json.Serialization.JsonIgnore] public string? Problem { get; init; }
+    /// <summary>There is no request budget: calls go out until the server itself answers 429.</summary>
+    public static LocalAiCatalog Load() => AiConfigFile.Load();
+    public void Check(string origin)
     {
-        var catalog = JsonSerializer.Deserialize<LocalAiCatalog>(File.ReadAllText(path ?? FilePath),
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true, ReadCommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true }) ?? throw new InvalidDataException("ai.config.json is empty.");
-        if (catalog.Models.Count == 0 || catalog.Models.Any(m => string.IsNullOrWhiteSpace(m.Model)) ||
-            catalog.Models.Select(m => m.Model).Distinct(StringComparer.Ordinal).Count() != catalog.Models.Count)
-            throw new InvalidDataException("ai.config.json: Models must contain unique model names.");
-        if (catalog.RequestsPerMinute is < 1 or > MaxRequestsPerMinute)
-            throw new InvalidDataException($"ai.config.json: RequestsPerMinute must be between 1 and {MaxRequestsPerMinute}.");
-        foreach (var model in catalog.Models)
+        if (Models.Count == 0 || Models.Any(m => string.IsNullOrWhiteSpace(m.Model)) ||
+            Models.Select(m => m.Model).Distinct(StringComparer.Ordinal).Count() != Models.Count)
+            throw new InvalidDataException($"{origin}: Models must contain unique model names.");
+        foreach (var model in Models)
         {
-            try { catalog.Apply(new Config(), model.Model).Validate(); }
-            catch (InvalidDataException e) { throw new InvalidDataException($"ai.config.json, model \"{model.Model}\": {e.Message}"); }
+            try { Apply(new Config(), model.Model).Validate(); }
+            catch (InvalidDataException e) { throw new InvalidDataException($"{origin}, model \"{model.Model}\": {e.Message}"); }
         }
-        return catalog;
+    }
+    /// <summary>The model an answer mode uses: "מהיר" prefers one without thinking (it answers at once), "מעמיק" one with
+    /// thinking; only models on the chosen model's server, which share its key. Otherwise, and in "רגיל", the chosen model.
+    /// A code model is the last choice for fast answers to general questions.</summary>
+    public string ModelFor(string chosen, AnswerMode mode)
+    {
+        var model = Models.FirstOrDefault(m => m.Model == chosen);
+        if (model == null || mode == AnswerMode.Normal || model.Thinking == (mode == AnswerMode.Deep)) return chosen;
+        static string Server(AiOptions m) => Uri.TryCreate(m.Endpoint, UriKind.Absolute, out var uri) ? uri.GetLeftPart(UriPartial.Authority) : m.Endpoint;
+        return Models.Where(m => m.Thinking == (mode == AnswerMode.Deep) && Server(m) == Server(model) && m.Format == model.Format)
+            .OrderBy(m => m.Model.Contains("code", StringComparison.OrdinalIgnoreCase)).FirstOrDefault()?.Model ?? chosen;
     }
     public Config Apply(Config current, string? modelName)
     {
         var value = JsonSerializer.Deserialize<Config>(JsonSerializer.Serialize(current))!;
-        var model = Models.FirstOrDefault(m => m.Model == modelName) ?? Models[0];
-        value.Ai = JsonSerializer.Deserialize<AiOptions>(JsonSerializer.Serialize(model))!;
+        var model = Models.FirstOrDefault(m => m.Model == modelName) ?? Models.FirstOrDefault();
+        if (model != null)
+        {
+            value.Ai = JsonSerializer.Deserialize<AiOptions>(JsonSerializer.Serialize(model))!;
+            if (Keys.TryGetValue(model.Model, out var key)) value.Ai.EnvironmentFileKey = key;
+        }
         // bearer (default), header (custom header such as api-key), windows (integrated auth) or none (open internal server).
         if (string.IsNullOrWhiteSpace(value.Ai.Authentication)) value.Ai.Authentication = "bearer";
         value.Ai.SecretEnvironmentVariable = "WINDOWSCHAT_LOCAL_API_KEY";
-        value.Ai.RequestsPerMinute = RequestsPerMinute;
         value.Gateway.Endpoint = "";
         value.Documents.SearchSubfolders = SearchSubfolders;
         Documents.ApplyTo(value.Documents);

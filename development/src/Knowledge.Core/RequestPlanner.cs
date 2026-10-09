@@ -25,7 +25,8 @@ public sealed class RequestPlanner(IAiClient ai, string assistantPrompt = "")
         search: organizational procedures, password resets, permissions, policies, contacts, entitlements, documents,
         or follow-ups about their facts. This app has ONE organization's library: search before asking the user
         which organization or to provide its policies. Query: concise self-contained terms resolving prior context,
-        including useful Hebrew/English equivalents. Do not put generic greetings in place of answers.
+        including useful Hebrew/English equivalents and the words a procedure would likely use for the same problem
+        (e.g. for "crashes" also: stuck, frozen, not responding, error, reset; תקוע, לא מגיב, שגיאה, איפוס). Do not put generic greetings in place of answers.
         list: asking what documents/information exist in the library. Do not ask which database.
         read: selecting or discussing a previous source; sourceIndex is its 1-based availableSources number.
         For a specific question about it, query contains the topic to locate; for an overview leave query empty.

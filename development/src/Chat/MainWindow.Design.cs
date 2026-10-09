@@ -14,7 +14,9 @@ namespace Chat;
 public partial class MainWindow
 {
     private DateTimeOffset? lastSourceRefresh;
-    private void UpdateSendState() => SendButton.IsEnabled = !string.IsNullOrWhiteSpace(Question.Text) && loggedIn && request == null && !indexing && !switchingType;
+    // An attached document can be sent on its own ("summarize the attached document"); while documents load, sending
+    // waits for them (see Send), so the button stays available.
+    private void UpdateSendState() => SendButton.IsEnabled = (!string.IsNullOrWhiteSpace(Question.Text) || pendingAttachment != null) && loggedIn && request == null;
 
     private string? overlayKind;
     private IInputElement? overlayReturnFocus;
@@ -82,7 +84,7 @@ public partial class MainWindow
     private void PickChatType(object sender, RoutedEventArgs e)
     {
         if (overlayKind == "switcher") { CloseOverlay(); return; }
-        if (!loggedIn || request != null || indexing || switchingType) { Status.Text = "המתינו לסיום הפעולה הנוכחית."; return; }
+        if (!loggedIn || request != null) { Notice("המתינו לסיום הפעולה הנוכחית.", false); return; }
         var list = new StackPanel { Margin = new Thickness(6) };
         foreach (var type in chatTypes.Where(t => t.IsGeneral)) list.Children.Add(SwitcherRow(type));
         var personal = chatTypes.Where(t => !t.IsGeneral && !t.IsManaged).ToList();
@@ -114,14 +116,29 @@ public partial class MainWindow
         ShowOverlay("switcher", card, true, ChatTypePicker);
     }
     /// <summary>"2 תיקיות · 40 מסמכים"; the document count is known once the assistant's index was refreshed this session.</summary>
+    /// <summary>The last document count of each assistant (a few bytes in the profile), so the switcher shows it for
+    /// assistants whose index is not loaded.</summary>
+    private System.Collections.Generic.Dictionary<string, int> documentCounts = Storage.Load<System.Collections.Generic.Dictionary<string, int>>("document-counts.bin") ?? [];
+    private void RememberCount(int files)
+    {
+        if (documentCounts.TryGetValue(activeTypeId, out var known) && known == files) return;
+        documentCounts[activeTypeId] = files;
+        foreach (var gone in documentCounts.Keys.Where(id => !chatTypes.Any(t => t.Id == id)).ToList()) documentCounts.Remove(gone);
+        try { Storage.Save("document-counts.bin", documentCounts); } catch { }
+    }
     private string AssistantMeta(ChatType type)
     {
         if (type.IsGeneral) return "שיחה חופשית עם AI";
         if (type.IsManaged) return "ידע ארגוני";
         if (type.Paths.Count == 0) return "ללא תיקיות מסמכים";
-        var folders = type.Paths.Count == 1 ? "תיקייה אחת" : $"{type.Paths.Count} תיקיות";
+        // Sources are folders and single documents (a path with a document extension).
+        var singles = type.Paths.Count(p => DocumentIndex.Extensions.Contains(System.IO.Path.GetExtension(p).ToLowerInvariant()));
+        var folderCount = type.Paths.Count - singles;
+        var single = singles == 1 ? "מסמך אחד" : $"{singles} מסמכים";
+        if (folderCount == 0) return single;
+        var folders = (folderCount == 1 ? "תיקייה אחת" : $"{folderCount} תיקיות") + (singles > 0 ? " + " + single : "");
         int? files = type.Id == activeTypeId ? indexedFiles
-            : sessionIndexes.TryGetValue(type.Id, out var session) && session.Refreshed != null && session.Loading.IsCompletedSuccessfully ? session.Loading.Result.Statistics.Files : null;
+            : documentCounts.TryGetValue(type.Id, out var known) ? known : null;
         return files is int n ? folders + " · " + DocumentCount(n) : folders;
     }
     private Grid SwitcherRow(ChatType type)
@@ -144,7 +161,7 @@ public partial class MainWindow
         var row = new Button { Style = Ui.Style("RowButton"), Content = content, MinHeight = 52, Padding = new Thickness(8, 6, 8, 6), Background = active ? Looks.Tint(look.Color, 0.08) : Brushes.Transparent };
         Ui.SetCornerRadius(row, new CornerRadius(12));
         System.Windows.Automation.AutomationProperties.SetName(row, type.Name + (active ? " (פעיל)" : "") + " · " + AssistantMeta(type));
-        row.Click += async (_, _) => { CloseOverlay(false); try { if (type.Id != activeTypeId) await ActivateTypeAsync(type.Id, false); Question.Focus(); } catch (Exception ex) { Status.Text = ex.Message; } };
+        row.Click += async (_, _) => { CloseOverlay(false); try { if (type.Id != activeTypeId) await ActivateTypeAsync(type.Id, false); Question.Focus(); } catch (Exception ex) { Notice(ex.Message); } };
         var cell = new Grid { Margin = new Thickness(0, 1, 0, 1) };
         cell.Children.Add(row);
         // Editing an assistant is offered only here, next to its row.

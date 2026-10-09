@@ -55,7 +55,11 @@ public static class Storage
     }
 }
 public record Source(string Path, string Location);
-public record ChatMessage(string Role, string Text, DateTimeOffset Time, List<Source> Sources);
+public record ChatMessage(string Role, string Text, DateTimeOffset Time, List<Source> Sources)
+{
+    /// <summary>A document the user attached to this message (general chat only).</summary>
+    public Attachment? File { get; init; }
+}
 public sealed class Conversation
 {
     public string ChatTypeId { get; set; } = "default";
@@ -65,6 +69,11 @@ public sealed class Conversation
     [System.Text.Json.Serialization.JsonIgnore]
     public string HistoryMetadata => (string.IsNullOrWhiteSpace(ChatTypeName) ? (ChatTypeId == ChatType.GeneralId ? "כללי" : "צ׳אט") : ChatTypeName) + " · " + LastActivityText;
     public Guid Id { get; set; } = Guid.NewGuid();
+    /// <summary>A short title the AI gave the conversation after its first answer (see <see cref="ConversationTopic"/>); empty until then.</summary>
+    public string Topic { get; set; } = "";
+    /// <summary>The header title: the AI's short title, or the first words of the first question until it has one.</summary>
+    [System.Text.Json.Serialization.JsonIgnore]
+    public string ShortTitle => Topic.Length > 0 ? Topic : ConversationTopic.Fallback(Title);
     public string Summary { get; set; } = "";
     public int SummarizedCount
     {

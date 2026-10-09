@@ -4,16 +4,15 @@ Chaty is a Hebrew-first (RTL) Windows desktop chatbot (.NET 8, WPF) that answers
 documents (DOCX, PPTX, text PDFs, XLSX, TXT, Markdown, CSV, HTML, JSON) with an OpenAI-compatible AI endpoint. No server,
 no install: one self-contained `Chaty.exe`.
 
-**Before changing anything, read [development/AI-INSTRUCTIONS.md](development/AI-INSTRUCTIONS.md)**: the configuration (`ai.config.json`:
-models, keys, limits), the code map, building and testing (also offline), and the rules that must not be broken.
+**Before changing anything, read [AI-INSTRUCTIONS.md](AI-INSTRUCTIONS.md)**: the configuration (`%APPDATA%\config.json`:
+the models; keys are typed in the app), the code map, building and testing (also offline), and the rules that must not be broken.
 
 ## Layout
 
 ```
 Chaty.exe            published app (git-ignored; rebuilt by development/scripts/publish-local.ps1)
-ai.config.json       deployment configuration: models, rate limit, search limits
+AI-INSTRUCTIONS.md   full guide for AI maintainers · DESIGN-REVIEW.md: deliberate UI decisions
 development/
-  AI-INSTRUCTIONS.md   full guide for AI maintainers
   src/Knowledge.Core   all logic: AI client, configuration, indexing, search, answer pipeline
   src/Chat             the WPF UI sources (XAML + C#), compiled by src/Chat.Local
   src/Chat.Local       builds Chaty.exe from ../Chat/*.cs with LOCAL_PROTOTYPE defined
@@ -49,6 +48,8 @@ environment the projects build (`EnableWindowsTargeting`), but the WPF app can't
 4. `AnswerMode`: **Normal** as above; **Fast** skips planning and review (one AI call, short answer, half the
    evidence); **Deep** doubles the evidence, also reads the best-matching document, and asks for a complete answer
    with a completeness review.
+   General chat has the same three modes (one call; short or thorough answer). Fast and Deep may use another model on the
+   same server: one without / with `thinking` (`LocalAiCatalog.ModelFor`).
 5. Access is re-checked (`Access.CanRead` / `search.CanRead`) before sending excerpts and before attributing;
    `RedactInaccessible` and `ChatType.RedactOutsideFolders` scrub history. Keep these checks when changing the flow.
 

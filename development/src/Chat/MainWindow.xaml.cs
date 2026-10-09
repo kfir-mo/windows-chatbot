@@ -38,13 +38,16 @@ public partial class MainWindow : Window
         InitializeComponent();
         SendButton.IsEnabled = false;
         Question.TextChanged += (_, _) => UpdateSendState();
-        SendButton.IsEnabledChanged += (_, _) => { if (SendButton.IsEnabled && string.IsNullOrWhiteSpace(Question.Text)) SendButton.IsEnabled = false; };
+        SendButton.IsEnabledChanged += (_, _) => { if (SendButton.IsEnabled && string.IsNullOrWhiteSpace(Question.Text) && pendingAttachment == null) SendButton.IsEnabled = false; };
         HistoryView.ConversationSelected += async selected => await OpenConversationAsync(selected);
         HistoryView.BackRequested += () => { ShowPage("chat"); Question.Focus(); };
         HistoryView.DeleteRequested = DeleteConversation;
         HistoryView.LookFor = conversation => { var look = LookOf(chatTypes.FirstOrDefault(t => t.Id == conversation.ChatTypeId)); return (Looks.Brush(look.Color), look.Glyph); };
         // The panel's children are square; one rounded clip keeps every screen inside the panel's corners.
         PanelRoot.SizeChanged += (_, e) => PanelRoot.Clip = new RectangleGeometry(new Rect(e.NewSize), 18, 18);
+        // Messages are read-only text boxes, and a text box swallows the mouse wheel even when it has nothing to scroll:
+        // the conversation itself scrolls wherever the pointer is (a wheel notch is three 16 px lines, as elsewhere in Windows).
+        Scroll.PreviewMouseWheel += (_, e) => { Scroll.ScrollToVerticalOffset(Scroll.VerticalOffset - e.Delta * 0.4); e.Handled = true; };
         // The chat area's empty background also takes the double-click (also when the message list has handled the click).
         ChatPage.AddHandler(MouseLeftButtonDownEvent, new MouseButtonEventHandler(BackgroundDoubleClick), true);
         Loaded += (_, _) => Anchor();
@@ -84,7 +87,7 @@ public partial class MainWindow : Window
             ExpandPanel(this,new());
             LoginOverlay.Visibility=Visibility.Visible;
         }
-        catch (Exception ex) { Status.Text = ex.Message; SendButton.IsEnabled = false; ExpandPanel(this, new()); }
+        catch (Exception ex) { Notice(ex.Message); SendButton.IsEnabled = false; ExpandPanel(this, new()); }
     }
     protected override void OnClosed(EventArgs e)
     {
@@ -254,12 +257,12 @@ public partial class MainWindow : Window
             Storage.Save("conversations.bin", conversations.Where(c => c.HasUserMessages).ToList());
             return true;
         }
-        catch { Status.Text = "לא ניתן לשמור שיחה במחשב זה. בדקו מקום פנוי והרשאות."; return false; }
+        catch { Notice("לא ניתן לשמור שיחה במחשב זה. בדקו מקום פנוי והרשאות."); return false; }
     }
     private async void NewChat(object s, RoutedEventArgs e)
     {
         CloseOverlay(false);
-        if (!loggedIn || request != null || indexing || switchingType)
+        if (!loggedIn || request != null)
             return;
         current = new() { ChatTypeId = activeTypeId };
         Save();
@@ -277,14 +280,17 @@ public partial class MainWindow : Window
         foreach (var conversation in conversations) conversation.ChatTypeName = chatTypes.FirstOrDefault(t => t.Id == conversation.ChatTypeId)?.Name ?? conversation.ChatTypeName;
         HistoryView.Refresh(conversations);
         ShowPage("history");
+        _ = TitleOldConversationsAsync();
         HistoryView.FocusStart();
     }
     private async Task OpenConversationAsync(Conversation selected)
     {
-        if (request != null || indexing || switchingType) return;
+        if (request != null) return;
         var owner = chatTypes.Any(t => t.Id == selected.ChatTypeId) ? selected.ChatTypeId : ChatType.GeneralId;
         if (owner != activeTypeId) await ActivateTypeAsync(owner, false);
         current = selected; Question.Clear(); ShowPage("chat"); await RenderAsync(); Question.Focus();
+        // A conversation from before titles existed gets its short title now.
+        if (BuildMode.Local && selected.Topic.Length == 0 && selected.Messages.FirstOrDefault(m => m.Role == "user") is { } first) _ = NameConversationAsync(selected, first.Text, first.File?.Name);
     }
     private bool DeleteConversation(Conversation conversation)
     {
@@ -297,7 +303,20 @@ public partial class MainWindow : Window
         return true;
     }
     private async void Reindex(object s, RoutedEventArgs e) => await IndexAsync(true);
+    private Task? indexTask;
+    // Set while switching assistants stops the previous one's refresh: that is not a cancellation to report.
+    private bool quietCancel;
+    // A question sent while the documents were loading goes out as soon as they are ready.
+    private bool sendWhenReady;
     private async Task IndexAsync(bool force)
+    {
+        if (switchingType || indexing) return;
+        var task = indexTask = IndexCoreAsync(force);
+        try { await task; }
+        finally { if (indexTask == task) indexTask = null; }
+        if (sendWhenReady && sourcesReady && request == null && !switchingType) { sendWhenReady = false; Send(this, new()); }
+    }
+    private async Task IndexCoreAsync(bool force)
     {
         if (!chatTypes.Any(t => t.Id == activeTypeId && t.IsManaged) && activeConfig?.GeneralChat == true) { sourcesReady = true; lastSourceRefresh = DateTimeOffset.Now; Status.Text = IdleStatus(); return; }
         if (indexing || index == null)
@@ -306,17 +325,19 @@ public partial class MainWindow : Window
         var local = !chatTypes.Any(t => t.Id == activeTypeId && t.IsManaged);
         if (!force && local && activeSession?.Refreshed is { } refreshed && DateTimeOffset.Now - refreshed < SessionRefreshInterval)
         {
-            sourcesReady = true; lastSourceRefresh = refreshed; indexedFiles = index.Statistics.Files;
+            sourcesReady = true; lastSourceRefresh = refreshed; indexedFiles = index.Statistics.Files; RememberCount(index.Statistics.Files);
             Status.Text = IdleStatus();
             statusDetail = WarningsText();
             return;
         }
         indexing = true; sourcesReady = false; statusDetail = null;
-        CancelButton.Visibility = Visibility.Visible;
+        // A refresh the user asked for can be stopped from the send button; the automatic one runs quietly in the
+        // background (its progress is in the header) and stops by itself when another assistant is chosen.
+        if (force) CancelButton.Visibility = Visibility.Visible;
         indexRequest = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         try
         {
-            SendButton.IsEnabled = NewChatButton.IsEnabled = false;
+            UpdateSendState();
             if (chatTypes.Any(t => t.Id == activeTypeId && t.IsManaged))
             {
                 Status.Text = "מעדכן מקורות בשרת…";
@@ -326,7 +347,7 @@ public partial class MainWindow : Window
             else
             {
                 var session = activeSession;
-                await index.RefreshAsync(force, new Progress<string>(x => Status.Text = x), indexRequest.Token); indexedFiles = index.Statistics.Files;
+                await index.RefreshAsync(force, new Progress<string>(x => Status.Text = x), indexRequest.Token); indexedFiles = index.Statistics.Files; RememberCount(index.Statistics.Files);
                 if (session != null) session.Refreshed = DateTimeOffset.Now;
                 // Progress reports were posted before this continuation, so they have already run: the idle line is last.
                 Status.Text = IdleStatus();
@@ -335,9 +356,9 @@ public partial class MainWindow : Window
             }
             sourcesReady = true; lastSourceRefresh = DateTimeOffset.Now;
         }
-        catch (OperationCanceledException) { Status.Text = "עדכון המאגר בוטל."; }
-        catch { Status.Text = "לא ניתן לעדכן את המאגר. בדקו נתיב והרשאות."; }
-        finally { indexing = false; SendButton.IsEnabled = NewChatButton.IsEnabled = request == null; indexRequest.Dispose(); indexRequest = null; if (request == null) CancelButton.Visibility = Visibility.Collapsed; MemoryTrim.Schedule(Dispatcher, expanded ? IdleTrimSeconds : 1.5); }
+        catch (OperationCanceledException) { if (!quietCancel) { Status.Text = IdleStatus(); Notice("עדכון המאגר בוטל. אפשר לעדכן שוב מתפריט ⋯ · רענון המסמכים.", false); } }
+        catch { Status.Text = IdleStatus(); Notice("לא ניתן לעדכן את המאגר. בדקו שהתיקיות קיימות ושיש הרשאת קריאה."); }
+        finally { indexing = false; UpdateSendState(); indexRequest.Dispose(); indexRequest = null; if (request == null) CancelButton.Visibility = Visibility.Collapsed; MemoryTrim.Schedule(Dispatcher, expanded ? IdleTrimSeconds : 1.5); }
     }
     private string? WarningsText() => index.Warnings.Count == 0 ? null : "קבצים שלא נכללו:\n" + string.Join("\n", index.Warnings.Take(12)) + (index.Warnings.Count > 12 ? $"\nועוד {index.Warnings.Count - 12}…" : "");
     public static string DocumentCount(int count) => count == 1 ? "מסמך אחד" : $"{count} מסמכים";
@@ -345,22 +366,32 @@ public partial class MainWindow : Window
     private string IdleStatus()
     {
         var type = chatTypes.FirstOrDefault(t => t.Id == activeTypeId);
+        // Once the conversation has a topic, the topic is the title and this line names the kind of chat under it.
+        if (current?.HasUserMessages == true)
+            return type == null || type.IsGeneral ? "" : type.Name + (HasDocuments(type) && !type.IsManaged && indexedFiles is int count ? " · " + DocumentCount(count) : "");
         if (type == null || type.IsGeneral) return "שיחה חופשית עם AI";
         if (type.IsManaged) return "ידע ארגוני";
         if (type.Paths.Count == 0) return "מוכן · ללא תיקיות מסמכים";
         return indexedFiles is int files ? "מוכן · " + DocumentCount(files) : "מוכן";
     }
     /// <summary>"רגיל" uses the configured limits; "מעמיק" allows twice the evidence (more passages, more text), "מהיר" half of it.
-    /// The steps themselves differ too: see <see cref="AnswerMode"/>.</summary>
+    /// The steps themselves differ too: see <see cref="AnswerMode"/>. The model can differ as well: see <see cref="LocalAiCatalog.ModelFor"/>.</summary>
     private Config AnswerConfig()
     {
         var mode = CurrentMode();
         var deep = mode == AnswerMode.Deep;
         if (mode == AnswerMode.Normal) return activeConfig;
+        var ai = activeConfig.Ai;
+        if (BuildMode.Local)
+        {
+            var catalog = LocalAiCatalog.Load();
+            var model = catalog.ModelFor(ai.Model, mode);
+            if (model != ai.Model) ai = catalog.Apply(activeConfig, model).Ai;
+        }
         var d = activeConfig.Documents;
         return new()
         {
-            GeneralChat = activeConfig.GeneralChat, AssistantPrompt = activeConfig.AssistantPrompt, Ai = activeConfig.Ai, Gateway = activeConfig.Gateway, History = activeConfig.History,
+            GeneralChat = activeConfig.GeneralChat, AssistantPrompt = activeConfig.AssistantPrompt, Ai = ai, Gateway = activeConfig.Gateway, History = activeConfig.History,
             Ui = activeConfig.Ui, Logging = activeConfig.Logging, AnswerPrompt = activeConfig.AnswerPrompt,
             Documents = new() { Root = d.Root, Roots = d.Roots, SearchSubfolders = d.SearchSubfolders, IntervalMinutes = d.IntervalMinutes, ChunkCharacters = d.ChunkCharacters, MaxFileMegabytes = d.MaxFileMegabytes,
                 MaxPassages = deep ? Math.Min(30, d.MaxPassages * 2) : Math.Min(d.MaxPassages, Math.Max(3, d.MaxPassages / 2)),
@@ -369,13 +400,17 @@ public partial class MainWindow : Window
     }
     private async void Send(object s, RoutedEventArgs e)
     {
-        if (!loggedIn || request != null || switchingType || indexing || (!BuildMode.Local && gateway == null) || string.IsNullOrWhiteSpace(Question.Text) || Orphaned)
+        if (!loggedIn || request != null || (!BuildMode.Local && gateway == null) || string.IsNullOrWhiteSpace(Question.Text) && pendingAttachment == null || Orphaned)
             return;
-        if (!sourcesReady) { Status.Text = "יש לרענן את המסמכים לפני שליחת הודעה (תפריט ⋯ · רענון המסמכים)."; return; }
+        if (switchingType || indexing) { sendWhenReady = true; Notice("המסמכים עדיין נטענים. ההודעה תישלח מיד כשהטעינה תסתיים.", false); return; }
+        if (!sourcesReady) { Notice("יש לרענן את המסמכים לפני שליחת הודעה (תפריט ⋯ · רענון המסמכים)."); return; }
+        if (BuildMode.Local && LocalAiCatalog.Load().Models.Count == 0) { Notice("אין חיבור AI: קובץ ההגדרות חסר או לא תקין. הפרטים בתפריט ⋯ · הגדרות AI."); return; }
+        var file = pendingAttachment;
         var q = Question.Text.Trim();
+        if (q.Length == 0) q = "סכמו לי את המסמך המצורף.";
         if (q.Length > config.History.MessageCharacters)
         {
-            Status.Text = $"השאלה ארוכה מדי (עד {config.History.MessageCharacters} תווים).";
+            Notice($"ההודעה ארוכה מדי: עד {config.History.MessageCharacters:N0} תווים. אפשר לקצר, או לצרף את הטקסט כקובץ.");
             return;
         }
         request = CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
@@ -384,8 +419,10 @@ public partial class MainWindow : Window
         HistoryTab.IsEnabled = NewChatButton.IsEnabled = false;
         CancelButton.Visibility = Visibility.Visible;
         Question.Clear();
+        CloseNotice(this, new());
         current.ChatTypeName = chatTypes.First(t => t.Id == activeTypeId).Name;
-        current.Messages.Add(new("user", q, DateTimeOffset.Now, []));
+        current.Messages.Add(new("user", q, DateTimeOffset.Now, []) { File = file });
+        ClearAttachment();
         if (!conversations.Any(c => c.Id == current.Id)) conversations.Add(current);
         try
         {
@@ -400,25 +437,85 @@ public partial class MainWindow : Window
                 typingAnimation.Begin(this, true);
             }
             Status.Text = "מבין את הבקשה…";
-            IProgress<string> progress = new Progress<string>(x => Status.Text = x);
+            // Steps ("…") are short and stay in the header; anything else the engine reports (a fallback, an AI error) is a notice.
+            IProgress<string> progress = new Progress<string>(x => { if (x.EndsWith('…')) Status.Text = x; else Notice(x); });
             ChatMessage answer;
             if (BuildMode.Local)
             {
-                using var ai = new AiClient(activeConfig);
-                ai.WaitingForRateLimit = delay => progress.Report($"ממתין למכסת ה־API · כ־{Math.Ceiling(delay.TotalSeconds)} שניות…");
-                answer = await new ChatEngine(AnswerConfig(), ai, index) { Mode = CurrentMode() }.AskAsync(q, current, progress, request.Token);
+                var answerConfig = AnswerConfig();
+                using var ai = new AiClient(answerConfig);
+                answer = await new ChatEngine(answerConfig, ai, index) { Mode = CurrentMode() }.AskAsync(q, current, progress, request.Token);
             }
             else answer = await AskServerAsync(q, request.Token);
             Typing.Visibility = Visibility.Collapsed;
             current.Messages.Add(answer);
             Save();
+            // The first answer is in: a few words that sum up the request become the conversation's title (in the background).
+            if (BuildMode.Local && current.Topic.Length == 0 && current.Messages.Count(m => m.Role == "user") == 1) _ = NameConversationAsync(current, q, file?.Name);
             await RenderAsync();
-            if (Status.Text.StartsWith("ממתין למכסת ה־API") || Status.Text is "מבין את הבקשה…" or "מכין תשובה…" or "מחפש מידע במסמכים…" or "בודק שהתשובה מתאימה לבקשה…" or "קורא את המסמך המתאים ביותר…")
-                Status.Text = IdleStatus();
+            if (Status.Text.EndsWith('…')) Status.Text = IdleStatus();
         }
-        catch (OperationCanceledException) { Status.Text = "הבקשה בוטלה או עברה את הזמן המותר."; }
-        catch (Exception ex) { Status.Text = "הבקשה נכשלה: " + ex.Message; Storage.Log(config, "chat_failed"); }
+        catch (OperationCanceledException) { Status.Text = IdleStatus(); Notice("הבקשה בוטלה או עברה את הזמן המותר.", false); }
+        // The server's request limit is the only one: say so in the conversation, with when to send again.
+        catch (RateLimitException ex) { current.Messages.Add(new("assistant", ex.Message, DateTimeOffset.Now, [])); Save(); await RenderAsync(); Status.Text = IdleStatus(); }
+        catch (Exception ex) { Status.Text = IdleStatus(); Notice("הבקשה נכשלה: " + AiErrors.Describe(ex)); Storage.Log(config, "chat_failed"); }
         finally { typingAnimation?.Remove(this); typingAnimation = null; Typing.Visibility = Visibility.Collapsed; request.Dispose(); request = null; SendButton.IsEnabled = true; HistoryTab.IsEnabled = NewChatButton.IsEnabled = true; if (!indexing) CancelButton.Visibility = Visibility.Collapsed; MemoryTrim.Schedule(Dispatcher, IdleTrimSeconds); }
+    }
+    private System.Windows.Threading.DispatcherTimer? noticeTimer;
+    /// <summary>A message in full above the composer: errors and guidance stay until closed or the next message is sent,
+    /// information closes by itself. The header subtitle only ever holds the short summary or the current step.</summary>
+    private void Notice(string text, bool error = true)
+    {
+        NoticeText.Text = text;
+        NoticeIcon.Kind = error ? "warning" : "info";
+        NoticeIcon.SetValue(System.Windows.Documents.TextElement.ForegroundProperty, Theme.Brush(error ? "Danger" : "Secondary"));
+        NoticeBar.Visibility = Visibility.Visible;
+        noticeTimer?.Stop();
+        if (!error)
+        {
+            noticeTimer = new() { Interval = TimeSpan.FromSeconds(8) };
+            noticeTimer.Tick += (_, _) => { noticeTimer?.Stop(); NoticeBar.Visibility = Visibility.Collapsed; };
+            noticeTimer.Start();
+        }
+    }
+    private void CloseNotice(object s, RoutedEventArgs e) { noticeTimer?.Stop(); NoticeBar.Visibility = Visibility.Collapsed; }
+    private Attachment? pendingAttachment;
+    private async void AttachDocument(object s, RoutedEventArgs e)
+    {
+        var dialog = new Microsoft.Win32.OpenFileDialog { Title = "צירוף מסמך", Filter = "מסמכים|" + string.Join(";", DocumentIndex.Extensions.Select(x => "*" + x)) };
+        if (dialog.ShowDialog(this) == true) await AttachAsync(dialog.FileName);
+    }
+    private async Task AttachAsync(string path)
+    {
+        if (request != null || AttachButton.Visibility != Visibility.Visible || !AttachButton.IsEnabled) return;
+        AttachButton.IsEnabled = false; Status.Text = "קורא את הקובץ…";
+        try
+        {
+            var file = await Task.Run(() => Attachments.Read(path, config.Documents.MaxFileMegabytes, lifetime.Token));
+            pendingAttachment = file;
+            AttachmentName.Text = file.Name; AttachmentBadge.Content = FileBadge.For(file.Name); AttachmentChip.ToolTip = path;
+            AttachmentChip.Visibility = Visibility.Visible; UpdateSendState();
+            var budget = Attachments.Budget((activeConfig ?? config).Ai);
+            Status.Text = IdleStatus();
+            if (file.Text.Length > budget) Notice($"הקובץ ארוך: ה־AI יקרא כ־{Math.Max(1, budget * 100L / file.Text.Length)}% הראשונים שלו.", false);
+            Question.Focus();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex) { Status.Text = IdleStatus(); Notice(ex is InvalidOperationException ? ex.Message : "לא ניתן לקרוא את הקובץ. ודאו שהוא לא פתוח לעריכה או פגום."); }
+        finally { AttachButton.IsEnabled = true; }
+    }
+    private void ClearAttachment() { pendingAttachment = null; AttachmentChip.Visibility = Visibility.Collapsed; AttachmentBadge.Content = null; UpdateSendState(); }
+    private void RemoveAttachment(object s, RoutedEventArgs e) { ClearAttachment(); Question.Focus(); }
+    private void ComposerDragOver(object s, DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
+        e.Effects = AttachButton.Visibility == Visibility.Visible ? DragDropEffects.Copy : DragDropEffects.None; e.Handled = true;
+    }
+    private async void ComposerDrop(object s, DragEventArgs e)
+    {
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] { Length: > 0 } files) return;
+        e.Handled = true;
+        await AttachAsync(files[0]);
     }
     private void Cancel(object s, RoutedEventArgs e)
     {
@@ -480,7 +577,7 @@ public partial class MainWindow : Window
         else Question.IsEnabled = true;
         foreach (var m in current.Messages)
         {
-            var message = m.Role == "user" ? MessageView.User(m) : MessageView.Assistant(m, text => Status.Text = text);
+            var message = m.Role == "user" ? MessageView.User(m) : MessageView.Assistant(m, text => Notice(text));
             Messages.Children.Add(message);
             if (m == current.Messages.Last() && SystemParameters.ClientAreaAnimation)
             {
@@ -504,7 +601,7 @@ public partial class MainWindow : Window
     }
     private void UseSuggestion(string question)
     {
-        if (request != null || indexing || switchingType) return;
+        if (request != null) return;
         Question.Text = question;
         Send(this, new());
     }
@@ -524,7 +621,7 @@ public partial class MainWindow : Window
             label.BeginAnimation(OpacityProperty, new DoubleAnimation(open ? 1 : 0, duration));
         }
     }
-    private AnswerMode CurrentMode() => activeConfig.GeneralChat ? AnswerMode.Normal : FastMode.IsChecked == true ? AnswerMode.Fast : DeepMode.IsChecked == true ? AnswerMode.Deep : AnswerMode.Normal;
+    private AnswerMode CurrentMode() => ModeSwitch.Visibility != Visibility.Visible ? AnswerMode.Normal : FastMode.IsChecked == true ? AnswerMode.Fast : DeepMode.IsChecked == true ? AnswerMode.Deep : AnswerMode.Normal;
 
     private Dictionary<string, TypeLook>? looks;
     private Dictionary<string, TypeLook> SavedLooks => looks ??= LoadLooks();
@@ -535,7 +632,7 @@ public partial class MainWindow : Window
         return saved.Where(x => Looks.IsColor(x.Value.Color)).Select(x => (x.Key, Glyph: Looks.Migrate(x.Value.Glyph), x.Value.Color))
             .Where(x => x.Glyph != null).ToDictionary(x => x.Key, x => new TypeLook(x.Color, x.Glyph!));
     }
-    private void SaveLooks() { try { Storage.Save("chat-looks.bin", SavedLooks); } catch { Status.Text = "לא ניתן לשמור את הבחירה במחשב זה."; } }
+    private void SaveLooks() { try { Storage.Save("chat-looks.bin", SavedLooks); } catch { Notice("לא ניתן לשמור את הבחירה במחשב זה."); } }
     private int? indexedFiles;
     private TypeLook LookOf(ChatType? type)
     {
@@ -563,14 +660,66 @@ public partial class MainWindow : Window
         Application.Current.Resources["AssistantBrush"] = Looks.Brush(look.Color);
         Application.Current.Resources["AssistantSoftBrush"] = Looks.Tint(look.Color, 0.14);
         HeaderIcon.Kind = look.Glyph;
-        ChatTypeName.Text = type?.Name ?? "כללי";
-        var documents = HasDocuments(type) && type?.IsManaged != true;
-        ModeSwitch.Visibility = documents ? Visibility.Visible : Visibility.Collapsed;
-        Grid.SetColumnSpan(QuestionArea, documents ? 2 : 1);
-        Grid.SetRow(SendArea, documents ? 1 : 0);
+        ShowHeaderTitle();
+        // Fast / normal / deep: for assistants with folders, and in the local general chat (short answer at once, or a
+        // thorough one, with a thinking model when the configuration has one).
+        var modes = BuildMode.Local ? type == null || type.IsGeneral || HasDocuments(type) && !type.IsManaged : HasDocuments(type) && type?.IsManaged != true;
+        ModeSwitch.Visibility = modes ? Visibility.Visible : Visibility.Collapsed;
+        Grid.SetColumnSpan(QuestionArea, modes ? 3 : 1);
+        // Attaching a document is part of the general chat only; assistants answer from their own folders.
+        var attach = BuildMode.Local && (type == null || type.IsGeneral);
+        AttachButton.Visibility = attach ? Visibility.Visible : Visibility.Collapsed;
+        if (!attach) ClearAttachment();
+        Grid.SetRow(SendArea, modes ? 1 : 0); Grid.SetRow(AttachButton, modes ? 1 : 0);
         QuestionHint.Text = HasDocuments(type) ? "שאלו על המסמכים…" : "כתבו הודעה…";
         System.Windows.Automation.AutomationProperties.SetName(Question, QuestionHint.Text.TrimEnd('…'));
         Disclaimer.Text = HasDocuments(type) ? "Chaty עלול לטעות. כדאי לבדוק מידע חשוב במקור." : "Chaty עלול לטעות. כדאי לבדוק מידע חשוב.";
+    }
+    /// <summary>The header title: the assistant's name on a new chat, the conversation's topic (its first question) once it
+    /// has one. The subtitle then names the assistant, unless it shows a step in progress.</summary>
+    private void ShowHeaderTitle()
+    {
+        var type = ActiveType;
+        var topic = current?.HasUserMessages == true ? current.ShortTitle : null;
+        ChatTypeName.Text = topic ?? type?.Name ?? "כללי";
+        // The whole first request, for whoever wants to read it.
+        ChatTypeName.ToolTip = topic == null ? null : string.Join(' ', current!.Title.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries));
+        if (!Status.Text.EndsWith('…') && !indexing) Status.Text = IdleStatus();
+    }
+    /// <summary>One small call, with the model "מהיר" would use: the title is a few words, not worth a thinking model.
+    /// If it fails (no connection, the server's limit) the first words of the question stay the title.</summary>
+    private async Task<bool> NameConversationAsync(Conversation conversation, string question, string? attachment)
+    {
+        try
+        {
+            var catalog = LocalAiCatalog.Load();
+            var options = catalog.Apply(activeConfig, catalog.ModelFor(activeConfig.Ai.Model, AnswerMode.Fast));
+            using var ai = new AiClient(options);
+            var topic = await ConversationTopic.SummarizeAsync(ai, question, attachment, lifetime.Token);
+            if (topic == null || conversation.Topic.Length > 0) return topic != null;
+            conversation.Topic = topic; Save();
+            if (conversation == current) ShowHeaderTitle();
+            return true;
+        }
+        catch { return false; }
+    }
+    private bool titling;
+    /// <summary>Conversations from before titles existed get theirs when the history opens: the 10 newest, one call each,
+    /// one after another, stopping at the first failure (no connection, the server's limit). Titles are saved, so once only.</summary>
+    private async Task TitleOldConversationsAsync()
+    {
+        if (!BuildMode.Local || titling) return;
+        titling = true;
+        try
+        {
+            foreach (var conversation in conversations.Where(c => c.HasUserMessages && c.Topic.Length == 0).OrderByDescending(c => c.Messages.Last().Time).Take(10).ToList())
+            {
+                var first = conversation.Messages.First(m => m.Role == "user" && !string.IsNullOrWhiteSpace(m.Text));
+                if (!await NameConversationAsync(conversation, first.Text, first.File?.Name)) break;
+                if (HistoryView.Visibility == Visibility.Visible) HistoryView.RefreshTitles();
+            }
+        }
+        finally { titling = false; }
     }
     private void RefreshWelcome()
     {
@@ -610,7 +759,9 @@ public partial class MainWindow : Window
     private Button FolderTag(string path)
     {
         var content = new StackPanel { Orientation = Orientation.Horizontal };
-        content.Children.Add(new Icon("folder", 16, Looks.Brush("orange")) { Margin = new Thickness(0, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center });
+        // A single document is shown as a document, not a folder.
+        var single = Access.SafeDocument(path) && !System.IO.Directory.Exists(path);
+        content.Children.Add(new Icon(single ? "file" : "folder", 16, Looks.Brush("orange")) { Margin = new Thickness(0, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center });
         content.Children.Add(new TextBlock { Text = FolderName(path), FontSize = 13, FontWeight = FontWeights.Medium, MaxWidth = 220, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
         var tip = new StackPanel();
         tip.Children.Add(new TextBlock { Text = "פתיחה בסייר הקבצים", FontWeight = FontWeights.SemiBold });
@@ -624,9 +775,9 @@ public partial class MainWindow : Window
             {
                 if (folder) Process.Start(new ProcessStartInfo("explorer.exe") { ArgumentList = { path }, UseShellExecute = false });
                 else if (file) Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = false });
-                else Status.Text = "התיקייה לא נמצאה: " + FolderName(path);
+                else Notice("התיקייה לא נמצאה: " + FolderName(path));
             }
-            catch { Status.Text = "לא ניתן לפתוח את התיקייה."; }
+            catch { Notice("לא ניתן לפתוח את התיקייה."); }
         };
         return button;
     }
@@ -638,22 +789,23 @@ public partial class MainWindow : Window
         grid.ColumnDefinitions.Add(new ColumnDefinition());
         grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         grid.Children.Add(new Icon("clock", 18, Theme.Brush("Muted"), 1.8) { VerticalAlignment = VerticalAlignment.Center });
-        var title = new TextBlock { Text = OneLine(conversation.Title), TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(10, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
+        var title = new TextBlock { Text = conversation.ShortTitle, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(10, 0, 10, 0), VerticalAlignment = VerticalAlignment.Center };
         Grid.SetColumn(title, 1); grid.Children.Add(title);
         var when = new TextBlock { Text = time.Date == DateTime.Today ? time.ToString("HH:mm") : time.Date == DateTime.Today.AddDays(-1) ? "אתמול" : time.ToString("dd/MM"), FontSize = 12.5, Foreground = Theme.Brush("Muted"), VerticalAlignment = VerticalAlignment.Center };
         Grid.SetColumn(when, 2); grid.Children.Add(when);
-        var row = new Button { Style = Ui.Style("RowButton"), Content = grid, MinHeight = 46, BorderBrush = Theme.Brush("Divider"), BorderThickness = new Thickness(0, position == 0 ? 0 : 1, 0, 0), ToolTip = conversation.Title.Length > 60 ? conversation.Title : null };
+        var row = new Button { Style = Ui.Style("RowButton"), Content = grid, MinHeight = 46, BorderBrush = Theme.Brush("Divider"), BorderThickness = new Thickness(0, position == 0 ? 0 : 1, 0, 0), ToolTip = OneLine(conversation.Title) };
         Ui.SetCornerRadius(row, new CornerRadius(position == 0 ? 14 : 0, position == 0 ? 14 : 0, position == count - 1 ? 14 : 0, position == count - 1 ? 14 : 0));
-        System.Windows.Automation.AutomationProperties.SetName(row, "פתיחת השיחה " + OneLine(conversation.Title));
+        System.Windows.Automation.AutomationProperties.SetName(row, "פתיחת השיחה " + conversation.ShortTitle);
         row.Click += async (_, _) => await OpenConversationAsync(conversation);
         return row;
     }
     private static string OneLine(string text) => System.Text.RegularExpressions.Regex.Replace(text.Trim(), @"\s+", " ");
 
+    // Clicking an example sends it at once, and general chat has no documents or attachments: each one must stand on its own.
     private static readonly string[] GeneralExamples =
     [
         "נסחו לי מייל קצר לבקשת יום חופש", "מה זה VPN, בפשטות?", "תרגמו לאנגלית: אשמח לקבוע פגישה מחר", "איך כותבים נוסחת VLOOKUP באקסל?",
-        "סכמו לי טקסט ארוך בשלוש נקודות", "תנו לי רעיונות לשם לפרויקט חדש", "איך כותבים קוד פשוט בפייתון?", "מה ההבדל בין RAM לאחסון?",
+        "איך מנהלים פגישה יעילה בחצי שעה?", "תנו לי רעיונות לשם לפרויקט חדש", "איך כותבים קוד פשוט בפייתון?", "מה ההבדל בין RAM לאחסון?",
         "עזרו לי לנסח הודעת תודה לצוות", "איך מגדירים חתימה במייל ב-Outlook?"
     ];
     private static readonly string[] DocumentExamples = ["מה יש במאגר?", "סכמו לי את המסמך העיקרי", "מה הנוהל כשמשהו לא עובד?", "למי פונים בבעיה?"];

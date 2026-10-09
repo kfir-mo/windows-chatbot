@@ -11,12 +11,13 @@
 
   <Style TargetType="TextBox"><Setter Property="Foreground" Value="{DynamicResource Ink}"/><Setter Property="Background" Value="{DynamicResource Surface}"/><Setter Property="FontSize" Value="14"/><Setter Property="BorderBrush" Value="{DynamicResource Line}"/><Setter Property="SelectionBrush" Value="{DynamicResource Accent}"/><Setter Property="CaretBrush" Value="{DynamicResource Ink}"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/></Style>
   <Style TargetType="PasswordBox"><Setter Property="Foreground" Value="{DynamicResource Ink}"/><Setter Property="FontSize" Value="14"/><Setter Property="SelectionBrush" Value="{DynamicResource Accent}"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/></Style>
-  <!-- A bordered input field (radius 10, 1.5px border that turns blue while typing). -->
+  <!-- A bordered input field (radius 10, 1.5px border that turns blue while typing). WPF applies Padding to PART_ContentHost
+       itself, so the template must not add it again; the text then starts 13.5px in (padding 10 + border 1.5 + 2), where placeholders sit. -->
   <Style x:Key="FieldBox" TargetType="TextBox">
    <Setter Property="FontSize" Value="14"/><Setter Property="Padding" Value="10,0"/><Setter Property="MinHeight" Value="44"/><Setter Property="VerticalContentAlignment" Value="Center"/>
    <Setter Property="Foreground" Value="{DynamicResource Ink}"/><Setter Property="BorderBrush" Value="{DynamicResource FieldLine}"/><Setter Property="BorderThickness" Value="1.5"/>
    <Setter Property="SelectionBrush" Value="{DynamicResource Accent}"/><Setter Property="CaretBrush" Value="{DynamicResource Ink}"/><Setter Property="FocusVisualStyle" Value="{x:Null}"/>
-   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TextBox"><Border x:Name="Box" Background="{DynamicResource Surface}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="10"><ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/></Border>
+   <Setter Property="Template"><Setter.Value><ControlTemplate TargetType="TextBox"><Border x:Name="Box" Background="{DynamicResource Surface}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="10"><ScrollViewer x:Name="PART_ContentHost" VerticalAlignment="{TemplateBinding VerticalContentAlignment}"/></Border>
     <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Box" Property="BorderBrush" Value="#B8BDC7"/></Trigger><Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="Box" Property="BorderBrush" Value="{DynamicResource Accent}"/></Trigger></ControlTemplate.Triggers></ControlTemplate></Setter.Value></Setter>
   </Style>
 
