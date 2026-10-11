@@ -10,7 +10,7 @@ internal static class Theme
     public static SolidColorBrush Solid(string hex) { var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex)); brush.Freeze(); return brush; }
     public static void Apply()
     {
-        // A fixed light palette (DESIGN-REVIEW.md), independent of the Windows theme. Text tokens keep ≥ 4.5:1 on Canvas and Surface.
+        // A fixed light palette, independent of the Windows theme. Text tokens keep ≥ 4.5:1 on Canvas and Surface.
         var values = new (string Key, string Color)[] {
             ("Surface", "#FFFFFF"), ("Canvas", "#F5F6F8"), ("Subtle", "#F0F1F4"),
             ("Ink", "#1B1F27"), ("Secondary", "#4A5160"), ("Muted", "#5B6270"),

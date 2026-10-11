@@ -11,7 +11,7 @@ The key is encrypted with your Windows account and is never written to this fold
   instructions. An assistant with folders answers only from those documents and shows the source files.
   Click the round icon in the header to change an assistant's color and icon; click a folder on its welcome
   page to open it in Explorer.
-- Supported documents: DOCX, PPTX, PDF with text, XLSX, TXT, Markdown, CSV, HTML. Hover the status line in the
+- Supported documents: DOCX, PPTX, PDF with text, XLSX, TXT, Markdown, CSV, HTML, JSON. Hover the status line in the
   header to see files that were skipped and why.
 
 ## Configuration
@@ -19,7 +19,7 @@ The key is encrypted with your Windows account and is never written to this fold
 Administrators edit **`ai.config.json`** beside Chaty.exe (models, endpoints, authentication, rate limit and
 search limits), then restart Chaty. Publishing a new build keeps the existing file. The full reference — with
 recipes for OpenAI, Azure OpenAI, vLLM, Ollama and internal gateways — is in
-[AI-INSTRUCTIONS.md](AI-INSTRUCTIONS.md) §3.
+[development/AI-INSTRUCTIONS.md](development/AI-INSTRUCTIONS.md) §3.
 
 ## Data and privacy
 
@@ -30,8 +30,8 @@ endpoint configured in `ai.config.json`.
 ## Changing or rebuilding
 
 The `development/` folder holds the source and is only needed to change the app. See
-[AI-INSTRUCTIONS.md](AI-INSTRUCTIONS.md) for the code map, build/test commands, building on a network without
-internet (`scripts/prepare-offline.ps1`, `publish-local.ps1 -Offline`) and the rules to keep. That file is
+[development/AI-INSTRUCTIONS.md](development/AI-INSTRUCTIONS.md) for the code map, build/test commands, building on a network without
+internet (`development/scripts/prepare-offline.ps1`, `publish-local.ps1 -Offline`) and the rules to keep. That file is
 written so another AI assistant can make changes safely.
 
 ## Moving this edition

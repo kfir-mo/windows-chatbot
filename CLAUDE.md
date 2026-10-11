@@ -4,7 +4,7 @@ Chaty is a Hebrew-first (RTL) Windows desktop chatbot (.NET 8, WPF) that answers
 documents (DOCX, PPTX, text PDFs, XLSX, TXT, Markdown, CSV, HTML, JSON) with an OpenAI-compatible AI endpoint. No server,
 no install: one self-contained `Chaty.exe`.
 
-**Before changing anything, read [AI-INSTRUCTIONS.md](AI-INSTRUCTIONS.md)**: the configuration (`ai.config.json`:
+**Before changing anything, read [development/AI-INSTRUCTIONS.md](development/AI-INSTRUCTIONS.md)**: the configuration (`ai.config.json`:
 models, keys, limits), the code map, building and testing (also offline), and the rules that must not be broken.
 
 ## Layout
@@ -12,8 +12,8 @@ models, keys, limits), the code map, building and testing (also offline), and th
 ```
 Chaty.exe            published app (git-ignored; rebuilt by development/scripts/publish-local.ps1)
 ai.config.json       deployment configuration: models, rate limit, search limits
-AI-INSTRUCTIONS.md   full guide for AI maintainers · DESIGN-REVIEW.md: deliberate UI decisions
 development/
+  AI-INSTRUCTIONS.md   full guide for AI maintainers
   src/Knowledge.Core   all logic: AI client, configuration, indexing, search, answer pipeline
   src/Chat             the WPF UI sources (XAML + C#), compiled by src/Chat.Local
   src/Chat.Local       builds Chaty.exe from ../Chat/*.cs with LOCAL_PROTOTYPE defined

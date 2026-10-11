@@ -1,7 +1,7 @@
 # Run ONCE on a PC with internet access, before moving this folder to a closed network.
 # Copies every NuGet package that building, testing and publishing Chaty needs into development\packages
 # and writes development\nuget.offline.config. On the closed network, publish-local.ps1 -Offline and the test
-# commands then restore from that folder only (see AI-INSTRUCTIONS.md, "Building without internet").
+# commands then restore from that folder only (see development/AI-INSTRUCTIONS.md, "Building without internet").
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $PSScriptRoot
 $dotnet = Join-Path $env:USERPROFILE '.dotnet\dotnet.exe'
