@@ -48,6 +48,16 @@ environment the projects build (`EnableWindowsTargeting`), but the WPF app can't
 4. `AnswerMode`: **Normal** as above; **Fast** skips planning and review (one AI call, short answer, half the
    evidence); **Deep** doubles the evidence, also reads the best-matching document, and asks for a complete answer
    with a completeness review.
+   **Maximum** ("חיפוש מקסימלי", a separate toggle for assistants with folders, one answer then back to normal): no
+   planner; the AI rewrites the request up to 8 ways (fixed spelling, Hebrew/English, exact error text, likely titles),
+   each is searched, the AI keeps the relevant passages from a pool of 40, then a deep answer and review
+   (`ChatEngine.MaximumSearchAsync`, 4 AI calls).
+   Deep and Maximum may ask 1–3 questions first when the request is too broad (`ChatEngine.ClarifyAsync`): a quick local
+   search, then one AI call that sees what was found and asks only when the documents cover several different topics (the
+   answers come from them). The UI shows them one at a time above the composer, like Claude's, and sends again with the
+   answers and `MayClarify` off.
+   Answers run per conversation (`MainWindow.running`): another chat can be opened and asked meanwhile; an answer that
+   arrives unseen counts on the corner and history buttons and marks its history row (`StateOf`: running / ready).
    General chat has the same three modes (one call; short or thorough answer). Fast and Deep may use another model on the
    same server: one without / with `thinking` (`LocalAiCatalog.ModelFor`).
 5. Access is re-checked (`Access.CanRead` / `search.CanRead`) before sending excerpts and before attributing;

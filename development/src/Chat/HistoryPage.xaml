@@ -39,8 +39,19 @@
         <Border BorderBrush="{DynamicResource Divider}" BorderThickness="{Binding Divider}">
          <Grid><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
           <Button Click="OpenConversation" Tag="{Binding Conversation}" Style="{StaticResource RowButton}" local:Ui.CornerRadius="{Binding Corners}" Padding="14,9,8,9" ToolTip="פתיחת השיחה" AutomationProperties.Name="{Binding AccessibleName}">
-           <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition/></Grid.ColumnDefinitions>
+           <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <Ellipse Width="10" Height="10" Fill="{Binding Badge}" VerticalAlignment="Center" Margin="0,0,12,0"/>
+            <!-- At the row's end, like Claude: a turning ring while the answer is on the way, a blue dot when a new one waits. -->
+            <Grid Grid.Column="2" VerticalAlignment="Center" Margin="8,0,2,0">
+             <local:Icon Kind="spinner" Size="15" StrokeWidth="2.4" TextElement.Foreground="{DynamicResource Accent}" RenderTransformOrigin="0.5,0.5" ToolTip="מכין תשובה…">
+              <local:Icon.RenderTransform><RotateTransform/></local:Icon.RenderTransform>
+              <local:Icon.Style><Style TargetType="local:Icon"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding State}" Value="running"><Setter Property="Visibility" Value="Visible"/>
+               <DataTrigger.EnterActions><BeginStoryboard><Storyboard RepeatBehavior="Forever"><DoubleAnimation Storyboard.TargetProperty="(UIElement.RenderTransform).(RotateTransform.Angle)" From="0" To="360" Duration="0:0:0.9"/></Storyboard></BeginStoryboard></DataTrigger.EnterActions></DataTrigger></Style.Triggers></Style></local:Icon.Style>
+             </local:Icon>
+             <Ellipse Width="9" Height="9" Fill="{DynamicResource Accent}" ToolTip="תשובה חדשה">
+              <Ellipse.Style><Style TargetType="Ellipse"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding State}" Value="ready"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></Ellipse.Style>
+             </Ellipse>
+            </Grid>
             <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" FontWeight="Medium"/><TextBlock Text="{Binding Meta}" Foreground="{DynamicResource Secondary}" FontSize="12" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/></StackPanel>
            </Grid>
           </Button>

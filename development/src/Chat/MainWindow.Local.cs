@@ -31,7 +31,7 @@ public partial class MainWindow
     }
     private async Task OpenLocalSettingsAsync()
     {
-        if (request != null) { Notice("המתינו לסיום הפעולה הנוכחית.", false); return; }
+        if (running.Count > 0) { Notice("המתינו שהתשובות שבדרך יסתיימו.", false); return; }
         if (ScreenHost.Content is LocalSettingsPanel) return;
         LocalSettingsPanel? dialog = null;
         try

@@ -154,6 +154,73 @@ public sealed class AnswerFlowTests
     }
 
     [Fact]
+    public async Task MaximumSearchFindsADocumentThroughTheAisRewordingsAndKeepsOnlyRelevantPassages()
+    {
+        // A misspelled English error; the guide is in Hebrew and only a rewording reaches it.
+        const string question = "can sign you in becouse your domain isnt available";
+        var guide = new Passage(@"C:\Docs\שגיאות.docx", "התחברות", "השגיאה We can't sign you in because your domain isn't available מופיעה כשאין חיבור לרשת הארגון. התחברו ל-VPN ונסו שוב.");
+        var noise = new Passage(@"C:\Docs\מדפסות.docx", "כללי", "רשימת מדפסות זמינות בבניין.");
+        var search = new WordSearch(("הדומיין", guide), ("available", noise));
+        var ai = new QueueAi("""{"queries":["We can't sign you in because your domain isn't available","הדומיין לא זמין בהתחברות"]}""", """{"relevant":[2]}""",
+            """{"answer":"התחברו ל-VPN ונסו שוב.","citations":[1]}""", """{"answer":"התחברו ל-VPN ונסו שוב.","citations":[1]}""");
+        var result = await new ChatEngine(new(), ai, search) { Mode = AnswerMode.Maximum }.AskAsync(question, new(), null, default);
+        Assert.Equal("התחברו ל-VPN ונסו שוב.", result.Text);
+        Assert.Equal(guide.Path, Assert.Single(result.Sources).Path);
+        // Rewording, choosing passages, answer and review: no planner; every wording was searched.
+        Assert.Equal(4, ai.Instructions.Count);
+        Assert.Contains("search queries", ai.Instructions[0]);
+        Assert.Contains("הדומיין לא זמין בהתחברות", search.Queries);
+        Assert.Contains(question, search.Queries);
+        // Only the chosen passage (and the rest of its document) reaches the answer; the printer list does not.
+        Assert.Contains("VPN", ai.Inputs[2]); Assert.DoesNotContain("מדפסות", ai.Inputs[2]);
+        Assert.Contains("deep mode", ai.Instructions[2]);
+    }
+    [Fact]
+    public async Task DeepAndMaximumAskFirstWhenTheDocumentsFoundCoverSeveralTopics()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            const string ask = """{"questions":[{"question":"באיזו מערכת?","options":["Outlook","Teams","VPN","Outlook","Word"]},{"question":"  ","options":[]}]}""";
+            // Deep: a quick local search, then one AI call that sees what was found and asks; nothing else runs.
+            var ai = new QueueAi(ask);
+            var search = new Search(path);
+            var engine = new ChatEngine(new(), ai, search) { Mode = AnswerMode.Deep, MayClarify = true };
+            var result = await engine.AskAsync("יש לי בעיה במחשב", new(), null, default);
+            Assert.Equal("", result.Text);
+            var question = Assert.Single(engine.Clarifications);
+            Assert.Equal("באיזו מערכת?", question.Question); Assert.Equal(4, question.Options.Count);
+            Assert.Single(ai.Instructions); Assert.Contains("Call 4321", ai.Inputs[0]);
+            Assert.Equal(["יש לי בעיה במחשב"], search.Queries);
+
+            // A specific request: the same call says no questions and the deep answer follows.
+            const string answer = """{"answer":"Reset it","citations":[1]}""";
+            ai = new QueueAi("""{"questions":[]}""", """{"action":"search","query":"Outlook problem"}""", answer, answer);
+            engine = new ChatEngine(new(), ai, new Search(path)) { Mode = AnswerMode.Deep, MayClarify = true };
+            Assert.Equal("Reset it", (await engine.AskAsync("Outlook לא נפתח", new(), null, default)).Text);
+            Assert.Empty(engine.Clarifications); Assert.Equal(4, ai.Instructions.Count);
+
+            // The second try carries the answers and may not ask; normal mode never asks.
+            ai = new QueueAi("""{"action":"search","query":"Outlook problem"}""", answer, answer);
+            await new ChatEngine(new(), ai, new Search(path)) { Mode = AnswerMode.Deep }.AskAsync("יש לי בעיה במחשב\nבאיזו מערכת? Outlook", new(), null, default);
+            Assert.Equal(3, ai.Instructions.Count);
+            ai = new QueueAi("""{"action":"search","query":"computer problem"}""", answer, answer);
+            await new ChatEngine(new(), ai, new Search(path)) { MayClarify = true }.AskAsync("יש לי בעיה במחשב", new(), null, default);
+            Assert.Equal(3, ai.Instructions.Count);
+
+            // Maximum asks the same way; a greeting never costs the extra call.
+            ai = new QueueAi(ask);
+            engine = new ChatEngine(new(), ai, new Search(path)) { Mode = AnswerMode.Maximum, MayClarify = true };
+            await engine.AskAsync("זה לא עובד", new(), null, default);
+            Assert.Single(engine.Clarifications); Assert.Single(ai.Instructions);
+            ai = new QueueAi("""{"answer":"היי","citations":[]}""");
+            engine = new ChatEngine(new(), ai, new Search(path)) { Mode = AnswerMode.Deep, MayClarify = true };
+            await engine.AskAsync("שלום", new(), null, default);
+            Assert.Empty(engine.Clarifications); Assert.Empty(ai.Instructions);
+        }
+        finally { File.Delete(path); }
+    }
+    [Fact]
     public async Task ConversationTitleIsAShortSummaryNotTheRequest()
     {
         var ai = new QueueAi("\"כתיבת קוד בפייתון.\"\nextra line");
@@ -178,6 +245,16 @@ public sealed class AnswerFlowTests
         public List<string> Instructions = [];
         public Task<string> CompleteAsync(string instruction, string input, CancellationToken cancellation)
         { Inputs.Add(input); Instructions.Add(instruction); return Task.FromResult(queue.Dequeue()); }
+    }
+    /// <summary>Finds a passage when the query contains its word, like the keyword index.</summary>
+    private sealed class WordSearch(params (string Word, Passage Passage)[] entries) : IDocumentSearch
+    {
+        public List<string> Queries = [];
+        public Task RefreshAsync(bool force, IProgress<string>? progress, CancellationToken cancellation) => Task.CompletedTask;
+        public Task<List<Passage>> SearchAsync(string query, CancellationToken cancellation)
+        { Queries.Add(query); return Task.FromResult(entries.Where(e => query.Contains(e.Word, StringComparison.OrdinalIgnoreCase)).Select(e => e.Passage).ToList()); }
+        public Task<List<Passage>> ReadAsync(string path, CancellationToken cancellation) => Task.FromResult(entries.Select(e => e.Passage).Where(p => p.Path == path).ToList());
+        public bool CanRead(string path) => true;
     }
     private sealed class Search(string path, string? more = null) : IDocumentSearch
     {

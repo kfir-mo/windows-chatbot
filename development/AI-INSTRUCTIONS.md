@@ -16,7 +16,8 @@ opens a menu (open / hide / exit); "הסתרה" there hides the corner button to
 - chat freely with an AI model ("צ׳אט כללי", general chat, no documents);
 - create **assistants** ("עוזר אישי"): a name, optional document folders or single documents (by path) and optional
   custom instructions. An assistant with documents answers **only** from them and shows the source files of every
-  answer. Each question can use "מהיר", "רגיל" (default) or "מעמיק" (see `AnswerMode` in `ChatEngine.cs`).
+  answer. Each question can use "מהיר", "רגיל" (default) or "מעמיק" (see `AnswerMode` in `ChatEngine.cs`), or, for a
+  document that is not found, the separate "חיפוש מקסימלי" button (one answer, then back to "רגיל").
 
 Everything runs on the user's PC. There is no server. The AI is any OpenAI-compatible HTTP endpoint (OpenAI,
 Azure OpenAI, vLLM, LiteLLM, an internal gateway…) configured in `%APPDATA%\config.json` on each PC.
@@ -152,7 +153,8 @@ old caches are rebuilt.
 resource, set in `ApplyTypeLook`); popovers open over the dimmed chat; history replaces the chat under the header; AI settings and the assistant
 form are full-panel screens:
 - `MainWindow.xaml` / `.xaml.cs` — the panel, header, landing pages (general chat; assistant with folder tags and
-  example questions), messages, composer (מהיר · רגיל · מעמיק switch for assistants with documents: `CurrentMode`,
+  example questions), messages, composer (מהיר · רגיל · מעמיק switch for assistants with documents, and the separate
+  "חיפוש מקסימלי" toggle with its orange cost note: `SetMaxSearch`; `CurrentMode`,
   `AnswerConfig` halves/doubles `MaxPassages`/`EvidenceCharacters`, `ChatEngine.Mode` changes the steps), resize grips,
   launcher button, status line, idle memory trimming hooks, assistant looks (`LookOf`, saved in `chat-looks.bin`).
 - `MainWindow.Design.cs` — the popovers: assistant switcher (the only place with "edit assistant"), ⋯ menu
@@ -230,4 +232,4 @@ If `dotnet` is not on PATH, use `& "$env:USERPROFILE\.dotnet\dotnet.exe"`.
 | "הגעתם למגבלת הבקשות של שרת ה־AI" | The server's own 429. Wait for the time shown, or ask for a higher limit on the server. |
 | "המודל הגיע למגבלת אורך התשובה" | A reasoning model spent `maxOutputTokens` on thinking. Raise `maxOutputTokens` in the JSON, or use a model without thinking. |
 | A document isn't used | Hover the header status line: skipped files and reasons are listed. Scanned PDFs and DOC/PPT/XLS are not supported. |
-| Answers miss information | Try "רגיל" or "מעמיק" (the AI adds the words documents use), or add the right folder to the assistant. |
+| Answers miss information | Try "רגיל" or "מעמיק" (the AI adds the words documents use), then "חיפוש מקסימלי" (rewordings, other language, fixed spelling), or add the right folder to the assistant. |

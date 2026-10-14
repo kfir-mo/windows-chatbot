@@ -12,11 +12,13 @@ namespace Chat;
 public partial class HistoryPage : UserControl
 {
     /// <summary>One row: the conversation plus its assistant's color, and its place in the day's card.</summary>
-    public sealed record Item(Conversation Conversation, Brush Badge, string Glyph, Thickness Divider, CornerRadius Corners)
+    /// <summary>One row: the conversation plus its assistant's color, its place in the day's card, and its state ("running":
+    /// an answer is on the way; "ready": a new answer waits to be seen).</summary>
+    public sealed record Item(Conversation Conversation, Brush Badge, string Glyph, Thickness Divider, CornerRadius Corners, string State = "")
     {
         public string Title => Conversation.ShortTitle;
         public string Meta => (string.IsNullOrWhiteSpace(Conversation.ChatTypeName) ? "כללי" : Conversation.ChatTypeName) + " · " + Conversation.Messages.Last().Time.ToLocalTime().ToString("HH:mm");
-        public string AccessibleName => Title + ", " + Meta;
+        public string AccessibleName => Title + ", " + Meta + State switch { "running" => ", מכין תשובה", "ready" => ", תשובה חדשה", _ => "" };
     }
     public sealed record Group(string Label, List<Item> Items);
     private Border? pendingConfirmation;
@@ -28,6 +30,7 @@ public partial class HistoryPage : UserControl
     public Func<Conversation, bool>? DeleteRequested { get; set; }
     /// <summary>The badge (color, icon) of a conversation's assistant, so history matches the assistant's look.</summary>
     public Func<Conversation, (Brush Badge, string Glyph)>? LookFor { get; set; }
+    public Func<Conversation, string>? StateFor { get; set; }
     public HistoryPage()
     {
         InitializeComponent();
@@ -85,7 +88,7 @@ public partial class HistoryPage : UserControl
             {
                 var (badge, glyph) = LookFor?.Invoke(conversation) ?? (Theme.Brush("Accent"), "chat");
                 var first = i == 0; var last = i == list.Count - 1;
-                return new Item(conversation, badge, glyph, new Thickness(0, first ? 0 : 1, 0, 0), new CornerRadius(first ? 14 : 0, first ? 14 : 0, last ? 14 : 0, last ? 14 : 0));
+                return new Item(conversation, badge, glyph, new Thickness(0, first ? 0 : 1, 0, 0), new CornerRadius(first ? 14 : 0, first ? 14 : 0, last ? 14 : 0, last ? 14 : 0), StateFor?.Invoke(conversation) ?? "");
             }).ToList();
             groups.Add(new(DayLabel(day.Key), items));
             shown += items.Count;

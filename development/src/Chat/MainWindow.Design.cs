@@ -16,7 +16,7 @@ public partial class MainWindow
     private DateTimeOffset? lastSourceRefresh;
     // An attached document can be sent on its own ("summarize the attached document"); while documents load, sending
     // waits for them (see Send), so the button stays available.
-    private void UpdateSendState() => SendButton.IsEnabled = (!string.IsNullOrWhiteSpace(Question.Text) || pendingAttachment != null) && loggedIn && request == null;
+    private void UpdateSendState() => SendButton.IsEnabled = (!string.IsNullOrWhiteSpace(Question.Text) || pendingAttachment != null) && loggedIn && !Busy;
 
     private string? overlayKind;
     private IInputElement? overlayReturnFocus;
@@ -84,7 +84,7 @@ public partial class MainWindow
     private void PickChatType(object sender, RoutedEventArgs e)
     {
         if (overlayKind == "switcher") { CloseOverlay(); return; }
-        if (!loggedIn || request != null) { Notice("המתינו לסיום הפעולה הנוכחית.", false); return; }
+        if (!loggedIn || running.Count > 0) { Notice("המתינו שהתשובות שבדרך יסתיימו.", false); return; }
         var list = new StackPanel { Margin = new Thickness(6) };
         foreach (var type in chatTypes.Where(t => t.IsGeneral)) list.Children.Add(SwitcherRow(type));
         var personal = chatTypes.Where(t => !t.IsGeneral && !t.IsManaged).ToList();
@@ -264,7 +264,7 @@ public partial class MainWindow
     {
         if (overlayKind == "menu") { CloseOverlay(); return; }
         var type = ActiveType;
-        var menu = BuildOptionsMenu(HasDocuments(type) ? type!.Name : null, indexing, !indexing && request == null && !switchingType,
+        var menu = BuildOptionsMenu(HasDocuments(type) ? type!.Name : null, indexing, !indexing && running.Count == 0 && !switchingType,
             () => { CloseOverlay(); Reindex(this, new()); },
             BuildMode.Local ? async () => { CloseOverlay(false); await OpenLocalSettingsAsync(); } : null,
             ShowAbout,

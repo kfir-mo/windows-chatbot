@@ -19,7 +19,7 @@ public partial class MainWindow
     /// refresh. Only sending waits for the documents (a question sent meanwhile goes out when they are ready).</summary>
     private async Task ActivateTypeAsync(string id, bool restoreHistory)
     {
-        if (!loggedIn || request != null) return;
+        if (!loggedIn) return;
         var version = ++switchVersion;
         sendWhenReady = false;
         if (indexTask != null) { quietCancel = true; indexRequest?.Cancel(); try { await indexTask; } catch { } quietCancel = false; }
@@ -68,7 +68,7 @@ public partial class MainWindow
     private void OpenChatTypeDialog(ChatType? type)
     {
         if (!loggedIn || !personalAllowed || type?.IsGeneral == true || type?.IsManaged == true) return;
-        if (request != null) { Notice("המתינו לסיום הפעולה הנוכחית.", false); return; }
+        if (running.Count > 0) { Notice("המתינו שהתשובות שבדרך יסתיימו.", false); return; }
         // The form is a full-panel screen; its color and symbol are kept only when the assistant is saved.
         var editor = new ChatTypesPage(type, type == null ? NewAssistantLook() : LookOf(type), config.Documents.SearchSubfolders);
         editor.SaveRequested = async saved =>
@@ -108,7 +108,7 @@ public partial class MainWindow
     private async Task SaveChatTypeAsync(ChatType type)
     {
         if (!personalAllowed || type.IsGeneral || type.IsManaged) throw new InvalidOperationException("הצ׳אט הכללי אינו ניתן לעריכה.");
-        if (!loggedIn || request != null) throw new InvalidOperationException("המתינו לסיום הפעולה הנוכחית.");
+        if (!loggedIn || running.Count > 0) throw new InvalidOperationException("המתינו שהתשובות שבדרך יסתיימו.");
         if (chatTypes.Any(t => t.Id != type.Id && t.Name.Equals(type.Name, StringComparison.OrdinalIgnoreCase))) throw new InvalidOperationException("כבר קיים עוזר בשם זה.");
         var next = chatTypes.Where(t => t.Id != type.Id).Append(type).ToList();
         Storage.Save("chat-types.bin", next.Where(t=>!t.IsManaged).ToList()); chatTypes = next;

@@ -4,6 +4,8 @@ using System.Text.RegularExpressions;
 namespace Knowledge.Core;
 
 public record RequestPlan(bool SearchKnowledge, string Reply, string Query, bool ListDocuments = false, int SourceIndex = 0);
+/// <summary>A question that narrows a broad request, with a few likely answers; the user may also type another.</summary>
+public record Clarification(string Question, List<string> Options);
 
 /// <summary>Decides whether a turn needs organizational evidence before reading the library.</summary>
 public sealed class RequestPlanner(IAiClient ai, string assistantPrompt = "")
@@ -37,6 +39,14 @@ public sealed class RequestPlanner(IAiClient ai, string assistantPrompt = "")
         var raw = await ai.CompleteAsync("Assistant customization:\n" + assistantPrompt + "\n" + Instructions, AiJson.Serialize(new { question, answerLanguage = ChatEngine.AnswerLanguage(question), context }), cancellation);
         return Parse(raw, question);
     }
+    /// <summary>The questions in a {"questions":[{"question","options"}]} reply: at most 3, each with at most 4 answers.</summary>
+    public static List<Clarification> ReadClarifications(JsonElement root) =>
+        root.TryGetProperty("questions", out var list) && list.ValueKind == JsonValueKind.Array
+            ? list.EnumerateArray().Where(q => q.ValueKind == JsonValueKind.Object && q.TryGetProperty("question", out var t) && t.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(t.GetString()))
+                .Select(q => new Clarification(q.GetProperty("question").GetString()!.Trim(),
+                    q.TryGetProperty("options", out var o) && o.ValueKind == JsonValueKind.Array ? o.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!.Trim()).Where(x => x.Length > 0).Take(4).ToList() : []))
+                .Take(3).ToList()
+            : [];
 
     public async Task<RequestPlan> ReviewAsync(string question, string context, RequestPlan candidate, CancellationToken cancellation)
     {

@@ -146,8 +146,58 @@ internal static class Program
    var main = new MainWindow();
    foreach (var name in new[] { "FastMode", "DeepMode", "NormalMode", "FastMode" }) ((RadioButton)main.FindName(name)).IsChecked = true;
    if (((TextBlock)main.FindName("NormalLabel")).Margin.Left != 0 || ((TextBlock)main.FindName("FastLabel")).Margin.Left == 0) throw new Exception("Only the chosen answer mode shows its name.");
-   main.Close();
    Console.WriteLine("PASS: answer mode switch (fast, normal, deep)");
+
+   // Maximum search: instead of the three modes, never with them; the orange note's X hides only the note.
+   var max = (System.Windows.Controls.Primitives.ToggleButton)main.FindName("MaxSearchButton"); var note = (FrameworkElement)main.FindName("MaxSearchNotice");
+   RadioButton Mode(string name) => (RadioButton)main.FindName(name);
+   void Toggle() { max.IsChecked = max.IsChecked != true; max.RaiseEvent(new RoutedEventArgs(System.Windows.Controls.Primitives.ButtonBase.ClickEvent)); }
+   Toggle();
+   if (new[] { "FastMode", "NormalMode", "DeepMode" }.Any(n => Mode(n).IsChecked == true) || note.Visibility != Visibility.Visible) throw new Exception("Maximum search must clear the modes and show its note.");
+   Click(Descendants(note).OfType<Button>().Single(b => Name(b) == "הסתרת ההודעה על חיפוש מקסימלי"));
+   if (note.Visibility == Visibility.Visible || max.IsChecked != true) throw new Exception("The X must hide the note and keep maximum search.");
+   Mode("DeepMode").IsChecked = true;
+   if (max.IsChecked == true) throw new Exception("Choosing a mode must end maximum search.");
+   Toggle(); Click(Descendants(note).OfType<Button>().Single(b => Name(b) == "חזרה למצב רגיל"));
+   if (max.IsChecked == true || note.Visibility == Visibility.Visible || Mode("NormalMode").IsChecked != true) throw new Exception("\"חזרה לרגיל\" must end maximum search and choose normal.");
+   Console.WriteLine("PASS: maximum search (clears the modes, note with X and back-to-normal, a mode ends it)");
+
+   // Questions before a broad deep/maximum search, like Claude's: one at a time above the composer, the answers one under
+   // another. Driven through the private members, with a conversation that has no message, so finishing makes no AI request.
+   const System.Reflection.BindingFlags Private = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
+   object? Call(string method, params object?[] args) => typeof(MainWindow).GetMethod(method, Private)!.Invoke(main, args);
+   var shown = (Conversation)typeof(MainWindow).GetField("current", Private)!.GetValue(main)!;
+   var requestType = typeof(MainWindow).GetNestedType("ClarifyRequest", System.Reflection.BindingFlags.NonPublic)!;
+   typeof(MainWindow).GetField("clarify", Private)!.SetValue(main, Activator.CreateInstance(requestType, shown, "יש לי בעיה במחשב", null,
+       new List<Clarification> { new("באיזו מערכת?", ["Outlook", "Teams"]), new("מה כבר ניסיתם?", []) }));
+   Call("ShowClarify");
+   var panel = (FrameworkElement)main.FindName("ClarifyPanel"); var options = (Panel)main.FindName("ClarifyOptions");
+   var forward = (Button)main.FindName("ClarifyNextButton"); var previous = (Button)main.FindName("ClarifyPreviousButton");
+   if (panel.Visibility != Visibility.Visible || ((TextBlock)main.FindName("ClarifyCounter")).Text != "1/2" || options.Children.Count != 2 || previous.IsEnabled || !forward.IsEnabled
+       || ((TextBlock)main.FindName("ClarifyOtherNumber")).Text != "3") throw new Exception("The first question must show its numbered answers, the typing row and the arrows.");
+   Click(forward); Click(previous);
+   if (((TextBlock)main.FindName("ClarifyQuestion")).Text != "באיזו מערכת?") throw new Exception("The arrows must move between the questions.");
+   Click((Button)options.Children[1]);
+   if (((TextBlock)main.FindName("ClarifyQuestion")).Text != "מה כבר ניסיתם?" || options.Children.Count != 0) throw new Exception("Choosing an answer must move to the next question.");
+   Click(previous);
+   if (!((Grid)((Button)options.Children[1]).Content).Children.OfType<Icon>().Any()) throw new Exception("Going back must show the chosen answer marked.");
+   Click(forward);
+   ((TextBox)main.FindName("ClarifyOther")).Text = "הפעלה מחדש";
+   if (((FrameworkElement)main.FindName("ClarifyOtherSend")).Visibility != Visibility.Visible) throw new Exception("A typed answer must offer its send arrow.");
+   Click((Button)main.FindName("ClarifyOtherSend"));
+   if (panel.Visibility == Visibility.Visible) throw new Exception("Answering the last question must close the panel.");
+   Console.WriteLine("PASS: questions before a broad search (numbered answers under each other, arrows, typed answer, closes after the last)");
+
+   // The corner and history buttons: moving dots while answering, a count of conversations with an unseen answer.
+   Call("SetThinking", true);
+   if (((FrameworkElement)main.FindName("ThinkingDots")).Visibility != Visibility.Visible || ((FrameworkElement)main.FindName("ChatGlyph")).Visibility == Visibility.Visible) throw new Exception("Thinking must show the dots instead of the glyph.");
+   Call("SetThinking", false);
+   Call("MarkArrived", new Conversation()); Call("MarkArrived", shown);
+   if (((TextBlock)main.FindName("UnseenCount")).Text != "2" || ((TextBlock)main.FindName("HistoryUnseenCount")).Text != "2" || ((FrameworkElement)main.FindName("HistoryUnseen")).Visibility != Visibility.Visible)
+       throw new Exception("Two conversations with unseen answers must show 2 on the corner and history buttons.");
+   if ((string)Call("StateOf", shown)! != "ready") throw new Exception("A conversation with an unseen answer must be \"ready\" in history.");
+   main.Close();
+   Console.WriteLine("PASS: corner and history buttons (thinking dots, count of unseen answers, ready state for history rows)");
 
    return 0;
   }
