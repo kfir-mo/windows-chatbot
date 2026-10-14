@@ -31,9 +31,9 @@ TXT, Markdown, CSV, HTML and JSON (read as "key: value" lines). Not supported: l
 ```
 (repository root)
   Chaty.exe              the app (self-contained, no install, no .NET needed on the PC)
-  AI-INSTRUCTIONS.md     this file
   README.md              short user/admin readme
   development/           source code — only needed to change or rebuild the app
+    AI-INSTRUCTIONS.md     this file
     scripts/publish-local.ps1     builds Chaty.exe into the root folder (use -Offline on a closed network)
     scripts/prepare-offline.ps1   bundles NuGet packages into development/packages (run once, with internet)
     packages/, nuget.offline.config   the offline package bundle (created by prepare-offline.ps1)

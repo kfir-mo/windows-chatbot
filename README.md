@@ -18,7 +18,7 @@ The key is encrypted with your Windows account and is never written to this fold
 
 Hand out only **Chaty.exe**. On each PC the AI models come from **`%APPDATA%\config.json`** (the network's
 endpoint JSON: providers and their models); each user then types the API key in "הגדרות AI". Without the file the
-model list is empty and the settings show where to put it. The format is in [AI-INSTRUCTIONS.md](AI-INSTRUCTIONS.md) §3.
+model list is empty and the settings show where to put it. The format is in [development/AI-INSTRUCTIONS.md](development/AI-INSTRUCTIONS.md) §3.
 
 ## Data and privacy
 
@@ -29,7 +29,7 @@ endpoint configured in `%APPDATA%\config.json`.
 ## Changing or rebuilding
 
 The `development/` folder holds the source and is only needed to change the app. See
-[AI-INSTRUCTIONS.md](AI-INSTRUCTIONS.md) for the code map, build/test commands, building on a network without
+[development/AI-INSTRUCTIONS.md](development/AI-INSTRUCTIONS.md) for the code map, build/test commands, building on a network without
 internet (`scripts/prepare-offline.ps1`, `publish-local.ps1 -Offline`) and the rules to keep. That file is
 written so another AI assistant can make changes safely.
 

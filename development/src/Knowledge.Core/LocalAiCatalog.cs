@@ -3,7 +3,7 @@ using System.Text.Json;
 namespace Knowledge.Core;
 
 // Deployment configuration, deliberately separate from user preferences and credentials.
-// The models come from %APPDATA%\config.json (AiConfigFile); see AI-INSTRUCTIONS.md.
+// The models come from %APPDATA%\config.json (AiConfigFile); see development/AI-INSTRUCTIONS.md.
 public sealed class LocalAiCatalog
 {
     public bool SearchSubfolders { get; set; } = true;
