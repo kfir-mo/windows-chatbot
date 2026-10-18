@@ -153,12 +153,10 @@ internal static class Program
 
    // The tour (here as on the first start, with no API key): step by step, "הבא" to the end, ending on the AI settings,
    // which stay open for the user to fill in.
-   ((FrameworkElement)main.FindName("Panel")).Visibility = Visibility.Visible; ((FrameworkElement)main.FindName("LoginOverlay")).Visibility = Visibility.Collapsed;
+   ((FrameworkElement)main.FindName("Panel")).Visibility = Visibility.Visible;
    Layout((FrameworkElement)main.Content, 400, 680);
    // The settings the app starts with (no API key in the temp profile), so the AI settings screen can open.
    typeof(MainWindow).GetField("config", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(main, new Config());
-   // Personal assistants allowed, so the tour also opens the assistant list and the new assistant form.
-   foreach (var flag in new[] { "personalAllowed", "loggedIn" }) typeof(MainWindow).GetField(flag, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(main, true);
    typeof(MainWindow).GetMethod("StartTour", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance, [typeof(bool)])!.Invoke(main, [true]);
    var tourLayer = ((Grid)main.FindName("PanelRoot")).Children.OfType<Grid>().Last();
    string TourStep() { Layout((FrameworkElement)main.Content, 400, 680); return Descendants(tourLayer).OfType<Border>().Select(Name).First(n => n.StartsWith("סיור באפליקציה")); }

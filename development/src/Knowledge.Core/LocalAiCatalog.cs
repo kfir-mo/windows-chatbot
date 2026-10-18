@@ -53,7 +53,6 @@ public sealed class LocalAiCatalog
         // bearer (default), header (custom header such as api-key), windows (integrated auth) or none (open internal server).
         if (string.IsNullOrWhiteSpace(value.Ai.Authentication)) value.Ai.Authentication = "bearer";
         value.Ai.SecretEnvironmentVariable = "WINDOWSCHAT_LOCAL_API_KEY";
-        value.Gateway.Endpoint = "";
         value.Documents.SearchSubfolders = SearchSubfolders;
         Documents.ApplyTo(value.Documents);
         value.History = JsonSerializer.Deserialize<HistoryOptions>(JsonSerializer.Serialize(History))!;

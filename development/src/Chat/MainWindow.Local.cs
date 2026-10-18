@@ -10,16 +10,13 @@ public partial class MainWindow
 {
     private async Task InitializeLocalAsync()
     {
-        LoginOverlay.Visibility = Visibility.Collapsed;
         config = Storage.Load<Config>("local-settings.bin") ?? new Config();
         config = LocalAiCatalog.Load().Apply(config, config.Ai.Model);
-        personalAllowed = loggedIn = true;
         conversations = (Storage.Load<List<Conversation>>("conversations.bin") ?? []).Where(c => c.HasUserMessages).ToList();
-        chatTypes = (Storage.Load<List<ChatType>>("chat-types.bin") ?? []).Where(t => !t.IsGeneral && !t.IsManaged).ToList();
+        chatTypes = (Storage.Load<List<ChatType>>("chat-types.bin") ?? []).Where(t => !t.IsGeneral).ToList();
         chatTypes.Insert(0, ChatType.General());
         // Conversations of assistants that no longer exist leave the history, except those the user chose to keep when deleting.
         if (conversations.RemoveAll(c => !c.KeptAfterDelete && !chatTypes.Any(t => t.Id == c.ChatTypeId)) > 0) Save();
-        LoginOverlay.Visibility = Visibility.Collapsed;
         Title = "Chaty";
         ExpandPanel(this, new());
         // Every start opens a new, empty general chat; earlier conversations are in the history.

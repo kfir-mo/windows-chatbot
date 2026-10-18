@@ -16,7 +16,7 @@ public partial class MainWindow
     private DateTimeOffset? lastSourceRefresh;
     // An attached document can be sent on its own ("summarize the attached document"); while documents load, sending
     // waits for them (see Send), so the button stays available.
-    private void UpdateSendState() => SendButton.IsEnabled = (!string.IsNullOrWhiteSpace(Question.Text) || pendingAttachment != null) && loggedIn && !Busy;
+    private void UpdateSendState() => SendButton.IsEnabled = (!string.IsNullOrWhiteSpace(Question.Text) || pendingAttachment != null) && !Busy;
 
     private string? overlayKind;
     private IInputElement? overlayReturnFocus;
@@ -84,18 +84,12 @@ public partial class MainWindow
     private void PickChatType(object sender, RoutedEventArgs e)
     {
         if (overlayKind == "switcher") { CloseOverlay(); return; }
-        if (!loggedIn || running.Count > 0) { Notice("המתינו שהתשובות שבדרך יסתיימו.", false); return; }
+        if (running.Count > 0) { Notice("המתינו שהתשובות שבדרך יסתיימו.", false); return; }
         var list = new StackPanel { Margin = new Thickness(6) };
         foreach (var type in chatTypes.Where(t => t.IsGeneral)) list.Children.Add(SwitcherRow(type));
-        var personal = chatTypes.Where(t => !t.IsGeneral && !t.IsManaged).ToList();
-        if (personal.Count > 0 || personalAllowed) { list.Children.Add(Divider()); list.Children.Add(GroupLabel("העוזרים שלי")); }
+        var personal = chatTypes.Where(t => !t.IsGeneral).ToList();
+        list.Children.Add(Divider()); list.Children.Add(GroupLabel("העוזרים שלי"));
         foreach (var type in personal) list.Children.Add(SwitcherRow(type));
-        foreach (var group in chatTypes.Where(t => t.IsManaged).GroupBy(t => string.Join(" / ", new[] { "ידע ארגוני", t.Project, t.Category }.Where(x => !string.IsNullOrWhiteSpace(x)))))
-        {
-            list.Children.Add(Divider()); list.Children.Add(GroupLabel(group.Key));
-            foreach (var type in group) list.Children.Add(SwitcherRow(type));
-        }
-        if (personalAllowed)
         {
             if (personal.Count > 0) list.Children.Add(Divider());
             var tile = new Grid { Width = 36, Height = 36 };
@@ -129,7 +123,6 @@ public partial class MainWindow
     private string AssistantMeta(ChatType type)
     {
         if (type.IsGeneral) return "שיחה חופשית עם AI";
-        if (type.IsManaged) return "ידע ארגוני";
         if (type.Paths.Count == 0) return "ללא תיקיות מסמכים";
         // Sources are folders and single documents (a path with a document extension).
         var singles = type.Paths.Count(p => DocumentIndex.Extensions.Contains(System.IO.Path.GetExtension(p).ToLowerInvariant()));
@@ -145,7 +138,7 @@ public partial class MainWindow
     {
         var look = LookOf(type);
         var active = type.Id == activeTypeId;
-        var editable = !type.IsGeneral && !type.IsManaged && personalAllowed;
+        var editable = !type.IsGeneral;
         var content = new Grid();
         content.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
         content.ColumnDefinitions.Add(new ColumnDefinition());
@@ -264,7 +257,7 @@ public partial class MainWindow
         var type = ActiveType;
         var menu = BuildOptionsMenu(HasDocuments(type) ? type!.Name : null, indexing, !indexing && running.Count == 0 && !switchingType,
             () => { CloseOverlay(); Reindex(this, new()); },
-            BuildMode.Local ? async () => { CloseOverlay(false); await OpenLocalSettingsAsync(); } : null,
+            async () => { CloseOverlay(false); await OpenLocalSettingsAsync(); },
             StartTour,
             () => Application.Current.Shutdown());
         ShowOverlay("menu", menu, false, MenuButton);

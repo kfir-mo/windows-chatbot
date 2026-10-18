@@ -200,15 +200,6 @@
      <ContentControl x:Name="ScreenHost" Focusable="False" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
     </Grid>
 
-    <Border x:Name="LoginOverlay" Grid.RowSpan="2" Panel.ZIndex="30" Background="{DynamicResource Surface}" Visibility="Visible" Padding="22">
-     <StackPanel VerticalAlignment="Center">
-      <TextBlock Text="ברוכים הבאים" FontSize="24" FontWeight="Bold" Margin="0,0,0,18"/>
-      <Border Background="{DynamicResource Selected}" CornerRadius="14" Padding="16"><TextBlock Text="אפליקציה זו מנוטרת על ידי הארגון" TextWrapping="Wrap" FontSize="17" FontWeight="SemiBold"/></Border>
-      <TextBlock Text="השאלות, התשובות ונתוני השימוש נשמרים ביומן הארגוני. הגישה לשירות ולמקורות נקבעת לפי הרשאות חשבון הארגון שלכם." TextWrapping="Wrap" Foreground="{DynamicResource Secondary}" Margin="0,16,0,18"/>
-      <Button x:Name="LoginButton" Style="{StaticResource PrimaryButton}" Content="כניסה עם חשבון הארגון" Click="Login"/>
-      <TextBlock x:Name="LoginStatus" Text="הכניסה משתמשת בחשבון Windows המחובר למחשב." FontSize="12" Foreground="{DynamicResource Secondary}" TextWrapping="Wrap" Margin="0,14,0,0"/>
-     </StackPanel>
-    </Border>
    </Grid>
   </Border>
 

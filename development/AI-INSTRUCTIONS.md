@@ -40,7 +40,7 @@ TXT, Markdown, CSV, HTML and JSON (read as "key: value" lines). Not supported: l
     packages/, nuget.offline.config   the offline package bundle (created by prepare-offline.ps1)
     src/Knowledge.Core/   all logic: AI client, configuration, indexing, search, answer pipeline
     src/Chat/             the WPF user interface (XAML + C#)
-    src/Chat.Local/       the project that builds Chaty.exe from src/Chat (defines LOCAL_PROTOTYPE)
+    src/Chat.Local/       the project that builds Chaty.exe from src/Chat
     tests/Knowledge.Tests unit tests (xUnit)
     tests/Chat.Smoke      UI smoke test (console app)
 ```

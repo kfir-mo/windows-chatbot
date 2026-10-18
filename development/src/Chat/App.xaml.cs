@@ -8,10 +8,10 @@ public partial class App : System.Windows.Application
         // A small transparent window gains nothing from the GPU path, which loads Direct3D and the graphics driver
         // (about 70 MB of committed memory). Software rendering keeps the app light without a visible difference.
         System.Windows.Media.RenderOptions.ProcessRenderMode = System.Windows.Interop.RenderMode.SoftwareOnly;
-        if (BuildMode.Local) Knowledge.Core.Storage.Root = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData), "WindowsChat.Local");
+        Knowledge.Core.Storage.Root = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData), "WindowsChat.Local");
         // One writer for each user's local history and index.
         var sid = System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value;
-        var name = "Local\\WindowsChat-" + (BuildMode.Local ? "Prototype-" : "") + sid;
+        var name = "Local\\WindowsChat-Prototype-" + sid;
         instance = new System.Threading.Mutex(true, name, out bool created);
         if (!created)
         {

@@ -16,15 +16,11 @@ namespace Chat;
 public partial class MainWindow : Window
 {
     private Config config = null!;
-    private GatewayClient gateway = null!;
-    private bool personalAllowed;
-    private bool loggedIn;
     private DocumentIndex index = null!;
 
     private List<Conversation> conversations = [];
     private Conversation current = new();
     private readonly CancellationTokenSource lifetime = new();
-    private DispatcherTimer? timer;
     private bool indexing;
     private bool sourcesReady;
     private bool expanded;
@@ -65,7 +61,7 @@ public partial class MainWindow : Window
         Closed += (_, _) => { SystemEvents.DisplaySettingsChanged -= DisplayChanged; SystemParameters.StaticPropertyChanged -= WorkAreaChanged; };
         // The app lives in the notification area (next to the clock) instead of the taskbar.
         SourceInitialized += (_, _) => RegisterOpenKey();
-        SourceInitialized += (_, _) => tray ??= new TrayIcon(BuildMode.Local ? "Chaty" : "Chat", ToggleFromTray,
+        SourceInitialized += (_, _) => tray ??= new TrayIcon("Chaty", ToggleFromTray,
             ("פתיחת הצ׳אט · " + HotKeyName, RestoreFromTaskbar), ("הסתרה", () => HideApp(this, new())), ("-", () => { }), ("יציאה", () => Application.Current.Shutdown()));
     }
     private TrayIcon? tray;
@@ -82,22 +78,13 @@ public partial class MainWindow : Window
         if (initialized)
             return;
         initialized = true;
-        try
-        {
-            if (BuildMode.Local) { await InitializeLocalAsync(); return; }
-            config = Config.Load();
-            gateway = new(config.Gateway);
-            ExpandPanel(this,new());
-            LoginOverlay.Visibility=Visibility.Visible;
-        }
+        try { await InitializeLocalAsync(); }
         catch (Exception ex) { Notice(ex.Message); SendButton.IsEnabled = false; ExpandPanel(this, new()); }
     }
     protected override void OnClosed(EventArgs e)
     {
         lifetime.Cancel();
         foreach (var token in running.Values) token.Cancel();
-        timer?.Stop();
-        gateway?.Dispose();
         tray?.Dispose(); tray = null;
         base.OnClosed(e);
     }
@@ -280,7 +267,6 @@ public partial class MainWindow : Window
     private async void NewChat(object s, RoutedEventArgs e)
     {
         CloseOverlay(false);
-        if (!loggedIn) return;
         current = new() { ChatTypeId = activeTypeId };
         Save();
         Question.Clear();
@@ -291,7 +277,6 @@ public partial class MainWindow : Window
     }
     private void History(object s, RoutedEventArgs e)
     {
-        if (!loggedIn) return;
         if (HistoryView.Visibility == Visibility.Visible) { ShowPage("chat"); Question.Focus(); return; }
         foreach (var conversation in conversations) conversation.ChatTypeName = chatTypes.FirstOrDefault(t => t.Id == conversation.ChatTypeId)?.Name ?? conversation.ChatTypeName;
         HistoryView.Refresh(conversations);
@@ -305,7 +290,7 @@ public partial class MainWindow : Window
         if (owner != activeTypeId) await ActivateTypeAsync(owner, false);
         current = selected; Question.Clear(); ShowPage("chat"); await RenderAsync(); Question.Focus();
         // A conversation from before titles existed gets its short title now.
-        if (BuildMode.Local && selected.Topic.Length == 0 && selected.Messages.FirstOrDefault(m => m.Role == "user") is { } first) _ = NameConversationAsync(selected, first.Text, first.File?.Name);
+        if (selected.Topic.Length == 0 && selected.Messages.FirstOrDefault(m => m.Role == "user") is { } first) _ = NameConversationAsync(selected, first.Text, first.File?.Name);
     }
     private bool DeleteConversation(Conversation conversation)
     {
@@ -348,12 +333,11 @@ public partial class MainWindow : Window
     }
     private async Task IndexCoreAsync(bool force)
     {
-        if (!chatTypes.Any(t => t.Id == activeTypeId && t.IsManaged) && activeConfig?.GeneralChat == true) { sourcesReady = true; lastSourceRefresh = DateTimeOffset.Now; Status.Text = IdleStatus(); return; }
+        if (activeConfig?.GeneralChat == true) { sourcesReady = true; lastSourceRefresh = DateTimeOffset.Now; Status.Text = IdleStatus(); return; }
         if (indexing || index == null)
             return;
         // Refreshed a moment ago in this session (or by the background preload): no need to rescan the folders.
-        var local = !chatTypes.Any(t => t.Id == activeTypeId && t.IsManaged);
-        if (!force && local && activeSession?.Refreshed is { } refreshed && DateTimeOffset.Now - refreshed < SessionRefreshInterval)
+        if (!force && activeSession?.Refreshed is { } refreshed && DateTimeOffset.Now - refreshed < SessionRefreshInterval)
         {
             sourcesReady = true; lastSourceRefresh = refreshed; indexedFiles = index.Statistics.Files; RememberCount(index.Statistics.Files);
             Status.Text = IdleStatus();
@@ -368,22 +352,13 @@ public partial class MainWindow : Window
         try
         {
             UpdateSendState();
-            if (chatTypes.Any(t => t.Id == activeTypeId && t.IsManaged))
-            {
-                Status.Text = "מעדכן מקורות בשרת…";
-                await gateway.RefreshAsync(activeTypeId, indexRequest.Token);
-                Status.Text = "המקורות בשרת עודכנו";
-            }
-            else
-            {
-                var session = activeSession;
-                await index.RefreshAsync(force, new Progress<string>(x => Status.Text = x), indexRequest.Token); indexedFiles = index.Statistics.Files; RememberCount(index.Statistics.Files);
-                if (session != null) session.Refreshed = DateTimeOffset.Now;
-                // Progress reports were posted before this continuation, so they have already run: the idle line is last.
-                Status.Text = IdleStatus();
-                // Hovering the status shows which files were skipped and why.
-                statusDetail = WarningsText();
-            }
+            var session = activeSession;
+            await index.RefreshAsync(force, new Progress<string>(x => Status.Text = x), indexRequest.Token); indexedFiles = index.Statistics.Files; RememberCount(index.Statistics.Files);
+            if (session != null) session.Refreshed = DateTimeOffset.Now;
+            // Progress reports were posted before this continuation, so they have already run: the idle line is last.
+            Status.Text = IdleStatus();
+            // Hovering the status shows which files were skipped and why.
+            statusDetail = WarningsText();
             sourcesReady = true; lastSourceRefresh = DateTimeOffset.Now;
         }
         catch (OperationCanceledException) { if (!quietCancel) { Status.Text = IdleStatus(); Notice("עדכון המאגר בוטל. אפשר לעדכן שוב מתפריט ⋯ · רענון המסמכים.", false); } }
@@ -398,9 +373,8 @@ public partial class MainWindow : Window
         var type = chatTypes.FirstOrDefault(t => t.Id == activeTypeId);
         // Once the conversation has a topic, the topic is the title and this line names the kind of chat under it.
         if (current?.HasUserMessages == true)
-            return type == null || type.IsGeneral ? "" : type.Name + (HasDocuments(type) && !type.IsManaged && indexedFiles is int count ? " · " + DocumentCount(count) : "");
+            return type == null || type.IsGeneral ? "" : type.Name + (HasDocuments(type) && indexedFiles is int count ? " · " + DocumentCount(count) : "");
         if (type == null || type.IsGeneral) return "שיחה חופשית עם AI";
-        if (type.IsManaged) return "ידע ארגוני";
         if (type.Paths.Count == 0) return "מוכן · ללא תיקיות מסמכים";
         return indexedFiles is int files ? "מוכן · " + DocumentCount(files) : "מוכן";
     }
@@ -412,17 +386,14 @@ public partial class MainWindow : Window
         var deep = mode is AnswerMode.Deep or AnswerMode.Maximum;
         if (mode == AnswerMode.Normal) return activeConfig;
         var ai = activeConfig.Ai;
-        if (BuildMode.Local)
-        {
-            var catalog = LocalAiCatalog.Load();
-            // Maximum search keeps the chosen model: its extra calls (rewording, choosing passages) need no thinking model.
-            var model = catalog.ModelFor(ai.Model, mode == AnswerMode.Maximum ? AnswerMode.Normal : mode);
-            if (model != ai.Model) ai = catalog.Apply(activeConfig, model).Ai;
-        }
+        var catalog = LocalAiCatalog.Load();
+        // Maximum search keeps the chosen model: its extra calls (rewording, choosing passages) need no thinking model.
+        var model = catalog.ModelFor(ai.Model, mode == AnswerMode.Maximum ? AnswerMode.Normal : mode);
+        if (model != ai.Model) ai = catalog.Apply(activeConfig, model).Ai;
         var d = activeConfig.Documents;
         return new()
         {
-            GeneralChat = activeConfig.GeneralChat, AssistantPrompt = activeConfig.AssistantPrompt, Ai = ai, Gateway = activeConfig.Gateway, History = activeConfig.History,
+            GeneralChat = activeConfig.GeneralChat, AssistantPrompt = activeConfig.AssistantPrompt, Ai = ai, History = activeConfig.History,
             Ui = activeConfig.Ui, Logging = activeConfig.Logging, AnswerPrompt = activeConfig.AnswerPrompt,
             Documents = new() { Root = d.Root, Roots = d.Roots, SearchSubfolders = d.SearchSubfolders, IntervalMinutes = d.IntervalMinutes, ChunkCharacters = d.ChunkCharacters, MaxFileMegabytes = d.MaxFileMegabytes,
                 MaxPassages = deep ? Math.Min(30, d.MaxPassages * 2) : Math.Min(d.MaxPassages, Math.Max(3, d.MaxPassages / 2)),
@@ -431,11 +402,11 @@ public partial class MainWindow : Window
     }
     private async void Send(object s, RoutedEventArgs e)
     {
-        if (!loggedIn || Busy || (!BuildMode.Local && gateway == null) || string.IsNullOrWhiteSpace(Question.Text) && pendingAttachment == null || Orphaned)
+        if (Busy || string.IsNullOrWhiteSpace(Question.Text) && pendingAttachment == null || Orphaned)
             return;
         if (switchingType || indexing) { sendWhenReady = true; Notice("המסמכים עדיין נטענים. ההודעה תישלח מיד כשהטעינה תסתיים.", false); return; }
         if (!sourcesReady) { Notice("יש לרענן את המסמכים לפני שליחת הודעה (תפריט ⋯ · רענון המסמכים)."); return; }
-        if (BuildMode.Local && LocalAiCatalog.Load().Models.Count == 0) { Notice("אין חיבור AI: קובץ ההגדרות חסר או לא תקין. הפרטים בתפריט ⋯ · הגדרות AI."); return; }
+        if (LocalAiCatalog.Load().Models.Count == 0) { Notice("אין חיבור AI: קובץ ההגדרות חסר או לא תקין. הפרטים בתפריט ⋯ · הגדרות AI."); return; }
         var file = pendingAttachment;
         var q = Question.Text.Trim();
         if (q.Length == 0) q = "סכמו לי את המסמך המצורף.";
@@ -485,24 +456,19 @@ public partial class MainWindow : Window
             // Steps ("…") are short and stay in the header; anything else the engine reports (a fallback, an AI error) is a notice.
             // Reports arrive posted, possibly after the answer: a finished conversation ignores a late step.
             IProgress<string> progress = new Progress<string>(x => { if (!running.ContainsKey(conversation)) return; if (x.EndsWith('…')) { steps[conversation] = x; if (OnScreen()) Status.Text = x; } else if (OnScreen()) Notice(x); });
-            ChatMessage answer;
-            if (BuildMode.Local)
-            {
-                var answerConfig = AnswerConfig();
-                using var ai = new AiClient(answerConfig);
-                // The final answer is written on screen as it arrives (in every mode).
-                IProgress<string> partial = new Progress<string>(text => ShowPartial(conversation, text));
-                var engine = new ChatEngine(answerConfig, ai, index) { Mode = mode, Partial = partial.Report };
-                answer = await engine.AskAsync(q, conversation, progress, token.Token);
-                // Maximum search is for one hard search: after its answer the next question goes back to normal.
-                if (mode == AnswerMode.Maximum && OnScreen()) SetMaxSearch(false);
-            }
-            else answer = await AskServerAsync(q, token.Token);
+            var answerConfig = AnswerConfig();
+            using var ai = new AiClient(answerConfig);
+            // The final answer is written on screen as it arrives (in every mode).
+            IProgress<string> partial = new Progress<string>(text => ShowPartial(conversation, text));
+            var engine = new ChatEngine(answerConfig, ai, index) { Mode = mode, Partial = partial.Report };
+            var answer = await engine.AskAsync(q, conversation, progress, token.Token);
+            // Maximum search is for one hard search: after its answer the next question goes back to normal.
+            if (mode == AnswerMode.Maximum && OnScreen()) SetMaxSearch(false);
             conversation.Messages.Add(answer);
             Save();
             MarkArrived(conversation);
             // The first answer is in: a few words that sum up the request become the conversation's title (in the background).
-            if (BuildMode.Local && conversation.Topic.Length == 0 && conversation.Messages.Count(m => m.Role == "user") == 1) _ = NameConversationAsync(conversation, q, file?.Name);
+            if (conversation.Topic.Length == 0 && conversation.Messages.Count(m => m.Role == "user") == 1) _ = NameConversationAsync(conversation, q, file?.Name);
         }
         catch (OperationCanceledException) { if (OnScreen()) Notice("הבקשה בוטלה או עברה את הזמן המותר.", false); }
         // The server's request limit is the only one: say so in the conversation, with when to send again.
@@ -692,7 +658,7 @@ public partial class MainWindow : Window
         ShowBusy(); MarkSeen();
         // The folder check compares sources with the active assistant's folders; a kept conversation of a deleted assistant
         // has none to compare with. Access to every source is still checked below.
-        if (activeConfig != null && !Orphaned && !chatTypes.Any(t => t.Id == activeTypeId && t.IsManaged)) ChatType.RedactOutsideFolders(current, activeConfig.Documents);
+        if (activeConfig != null && !Orphaned) ChatType.RedactOutsideFolders(current, activeConfig.Documents);
         await Task.Run(() => ChatEngine.RedactInaccessible(current));
         Save();
         Messages.Children.Clear(); liveMessage = null;
@@ -848,7 +814,7 @@ public partial class MainWindow : Window
     {
         if (type != null && SavedLooks.TryGetValue(type.Id, out var saved)) return saved;
         var general = type == null || type.IsGeneral;
-        var documents = !general && (type!.IsManaged || type.Paths.Count > 0);
+        var documents = !general && type!.Paths.Count > 0;
         // A stable hash (string.GetHashCode changes between runs); blue stays reserved for general chat.
         var color = general ? "blue" : Looks.Palette[1 + type!.Id.Aggregate(0, (h, c) => (h * 31 + c) & 0x7FFFFFFF) % (Looks.Palette.Length - 1)].Key;
         return new(color, general ? "chat" : documents ? "folder" : "people");
@@ -861,7 +827,7 @@ public partial class MainWindow : Window
         return new(color, "folder");
     }
     private ChatType? ActiveType => chatTypes.FirstOrDefault(t => t.Id == activeTypeId);
-    private static bool HasDocuments(ChatType? type) => type != null && !type.IsGeneral && (type.IsManaged || type.Paths.Count > 0);
+    private static bool HasDocuments(ChatType? type) => type != null && !type.IsGeneral && type.Paths.Count > 0;
     /// <summary>The header, composer and landing page follow the active assistant's color and symbol.</summary>
     private void ApplyTypeLook()
     {
@@ -871,17 +837,17 @@ public partial class MainWindow : Window
         Application.Current.Resources["AssistantSoftBrush"] = Looks.Tint(look.Color, 0.14);
         HeaderIcon.Kind = look.Glyph;
         ShowHeaderTitle();
-        // Fast / normal / deep: for assistants with folders, and in the local general chat (short answer at once, or a
+        // Fast / normal / deep: for assistants with folders, and in the general chat (short answer at once, or a
         // thorough one, with a thinking model when the configuration has one).
-        var modes = BuildMode.Local ? type == null || type.IsGeneral || HasDocuments(type) && !type.IsManaged : HasDocuments(type) && type?.IsManaged != true;
+        var modes = type == null || type.IsGeneral || HasDocuments(type);
         ModeSwitch.Visibility = modes ? Visibility.Visible : Visibility.Collapsed;
         // Maximum search looks through documents, so only assistants with their own folders offer it.
-        var maximum = BuildMode.Local && HasDocuments(type) && !type!.IsManaged;
+        var maximum = HasDocuments(type);
         MaxSearchButton.Visibility = maximum ? Visibility.Visible : Visibility.Collapsed;
         if (!maximum && MaxSearchButton.IsChecked == true) SetMaxSearch(false);
         Grid.SetColumnSpan(QuestionArea, modes ? 3 : 1);
         // Attaching a document is part of the general chat only; assistants answer from their own folders.
-        var attach = BuildMode.Local && (type == null || type.IsGeneral);
+        var attach = type == null || type.IsGeneral;
         AttachButton.Visibility = attach ? Visibility.Visible : Visibility.Collapsed;
         if (!attach) ClearAttachment();
         Grid.SetRow(SendArea, modes ? 1 : 0); Grid.SetRow(AttachButton, modes ? 1 : 0);
@@ -922,7 +888,7 @@ public partial class MainWindow : Window
     /// one after another, stopping at the first failure (no connection, the server's limit). Titles are saved, so once only.</summary>
     private async Task TitleOldConversationsAsync()
     {
-        if (!BuildMode.Local || titling) return;
+        if (titling) return;
         titling = true;
         try
         {
@@ -944,7 +910,6 @@ public partial class MainWindow : Window
         tileWanted = general;
         WelcomeTitle.Text = general ? "במה אפשר לעזור?" : "שלום שוב, במה אפשר לעזור?";
         WelcomeText.Text = general ? "שאלות, כתיבה, תרגום וסיכומים. בצ'אט הזה התשובות לא מבוססות על המסמכים שלכם."
-            : type!.IsManaged ? "התשובות מבוססות על מאגר הידע הארגוני, וכל תשובה כוללת הפניה למסמך המקור."
             : documents ? "התשובות מבוססות על התיקיות המחוברות בלבד, וכל תשובה כוללת הפניה למסמך המקור."
             : "לעוזר הזה אין עדיין תיקיות מסמכים, לכן הוא עונה כמו שיחה חופשית, לפי ההנחיות שלו.";
         // Connected folders: read-only tags that open the folder in Explorer. All of them wrap; nothing scrolls sideways.
@@ -953,9 +918,9 @@ public partial class MainWindow : Window
         // floats over the chat (it pushes nothing down) and closes on a click outside.
         CloseSources();
         WelcomeSources.Children.Clear();
-        if (!general && !type!.IsManaged)
+        if (!general)
         {
-            var sources = OrderedSources(type);
+            var sources = OrderedSources(type!);
             if (sources.Count <= 2) foreach (var source in sources) WelcomeSources.Children.Add(FolderTag(source.Path, source.Document));
             else
             {
@@ -997,7 +962,7 @@ public partial class MainWindow : Window
             }
         SuggestionSection.Visibility = Suggestions.Children.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         // The invitation to create an assistant is only for people who don't have one yet.
-        promoWanted = general && personalAllowed && !chatTypes.Any(t => !t.IsGeneral && !t.IsManaged);
+        promoWanted = general && !chatTypes.Any(t => !t.IsGeneral);
         FitWelcome(); Dispatcher.BeginInvoke(FitWelcome, System.Windows.Threading.DispatcherPriority.Loaded);
     }
     private bool tileWanted, promoWanted;

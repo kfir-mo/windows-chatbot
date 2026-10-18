@@ -29,11 +29,11 @@ public partial class MainWindow
         CloseOverlay(false); CloseSources();
         if (HistoryView.Visibility == Visibility.Visible || ScreenLayer.Visibility == Visibility.Visible) ShowPage("chat");
         // The switcher and the form cannot open while an answer is on its way.
-        var free = running.Count == 0 && personalAllowed;
+        var free = running.Count == 0;
         FrameworkElement? Popover() => OverlayHost.Content as FrameworkElement;
         FrameworkElement? InForm(string name) => tourForm?.FindName(name) as FrameworkElement;
-        tourOpensSettings = firstRun && BuildMode.Local && (config == null || string.IsNullOrEmpty(AiCredentials.Resolve(config.Ai)) || LocalAiCatalog.Load().Models.Count == 0);
-        var noModels = BuildMode.Local && LocalAiCatalog.Load().Models.Count == 0;
+        tourOpensSettings = firstRun && (config == null || string.IsNullOrEmpty(AiCredentials.Resolve(config.Ai)) || LocalAiCatalog.Load().Models.Count == 0);
+        var noModels = LocalAiCatalog.Load().Models.Count == 0;
         tour = [new(() => null, firstRun ? "ברוכים הבאים ל־Chaty" : "סיור קצר", tourOpensSettings ? "כמה דברים שכדאי להכיר, ובסוף נגדיר את החיבור ל־AI." : "כמה דברים שכדאי להכיר.")];
         if (free)
         {
@@ -45,7 +45,7 @@ public partial class MainWindow
         }
         if (Showing(ModeSwitch)) tour.Add(new(() => ModeSwitch, "מצב תשובה", "מהיר: תשובה קצרה. רגיל: מאוזנת. מעמיק: מלאה ומפורטת."));
         if (Showing(MaxSearchButton)) tour.Add(new(() => MaxSearchButton, "חיפוש מקסימלי", "כשמשהו לא נמצא, מחפש לעומק."));
-        if (BuildMode.Local && running.Count == 0)
+        if (running.Count == 0)
         {
             tour.Add(new(() => Descendants(Popover()).OfType<Button>().FirstOrDefault(b => System.Windows.Automation.AutomationProperties.GetName(b) == "הגדרות AI"),
                 "הגדרות AI", "נמצאות בתפריט של שלוש הנקודות למעלה.", () => ShowOptions(this, new()), Popover));

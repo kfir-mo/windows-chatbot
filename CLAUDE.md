@@ -15,13 +15,13 @@ development/
   AI-INSTRUCTIONS.md   full guide for AI maintainers
   src/Knowledge.Core   all logic: AI client, configuration, indexing, search, answer pipeline
   src/Chat             the WPF UI sources (XAML + C#), compiled by src/Chat.Local
-  src/Chat.Local       builds Chaty.exe from ../Chat/*.cs with LOCAL_PROTOTYPE defined
+  src/Chat.Local       builds Chaty.exe from ../Chat/*.cs
   tests/Knowledge.Tests  xUnit · tests/Chat.Smoke  UI smoke test (console, every line must say PASS)
   scripts/             publish-local.ps1, prepare-offline.ps1 (offline NuGet bundle in packages/, git-ignored)
 ```
 
-The server-managed edition (central AI server with AD auth) was split off to the `advance-edition` branch; it is not
-part of `main`. Code in `src/Chat` still has `#if LOCAL_PROTOTYPE` / `BuildMode.Local` branches from the shared origin.
+The server-managed edition (central AI server with AD auth) lives on the `advance-edition` branch; `main` has none of its
+code. The profile folder (`WindowsChat.Local`) and the single-instance name keep their old names so users keep their data.
 
 ## Commands
 

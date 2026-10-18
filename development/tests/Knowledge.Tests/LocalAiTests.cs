@@ -10,14 +10,13 @@ public class LocalAiTests
     public void CatalogReplacesStaleUserEndpointsAndKeepsModelAuthenticationAndSharedLimit()
     {
         var catalog = new LocalAiCatalog { Models = [new() { Model = "internal", Endpoint = "https://internal.example/v1/chat/completions", AllowedHosts = ["internal.example"], Authentication = "none", SystemPrompt = "Internal policy", MaxOutputTokens = 1200 }] };
-        var current = new Config(); current.Gateway.Endpoint = "https://old.example";
+        var current = new Config();
         var result = catalog.Apply(current, "removed-model"); result.Validate();
         Assert.Equal("internal", result.Ai.Model);
         Assert.Equal("https://internal.example/v1/chat/completions", result.Ai.Endpoint);
         Assert.Equal("none", result.Ai.Authentication);
         Assert.Equal("bearer", new LocalAiCatalog().Apply(current, null).Ai.Authentication);
         Assert.Equal("Internal policy", result.Ai.SystemPrompt);
-        Assert.Equal("", result.Gateway.Endpoint);
         Assert.Equal("gpt-4o-mini", current.Ai.Model);
     }
     private const string ClosedNetwork = """

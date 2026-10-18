@@ -4,9 +4,6 @@ public sealed class ChatType
 {
     public const string GeneralId = "builtin:general";
     public bool IsGeneral => Id == GeneralId;
-    public bool IsManaged => Id.StartsWith("org:", StringComparison.Ordinal);
-    public string Project { get; set; } = "";
-    public string Category { get; set; } = "";
     public static ChatType General() => new() { Id = GeneralId, Name = "כללי" };
     public string Id { get; set; } = Guid.NewGuid().ToString("N");
     public string Name { get; set; } = "";
