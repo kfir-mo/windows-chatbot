@@ -78,7 +78,7 @@
 
     <StackPanel Orientation="Horizontal" Margin="0,18,0,8"><TextBlock Text="הנחיות לעוזר" Style="{StaticResource FieldLabel}"/><TextBlock Text="(לא חובה)" Style="{StaticResource Optional}"/></StackPanel>
     <Grid><TextBox x:Name="CustomPrompt" Style="{StaticResource FieldBox}" Height="80" AcceptsReturn="True" TextWrapping="Wrap" MaxLength="6000" VerticalScrollBarVisibility="Auto" VerticalContentAlignment="Top" Padding="10,8" TextChanged="PromptChanged" AutomationProperties.Name="הנחיות לעוזר (לא חובה)"/>
-     <TextBlock x:Name="PromptHint" Text="לדוגמה: תענה בעברית פשוטה ובקצרה." Style="{StaticResource Placeholder}" VerticalAlignment="Top" Margin="13.5,9.5,13.5,0" TextWrapping="Wrap"/></Grid>
+     <TextBlock x:Name="PromptHint" Text="לדוגמה: תפנה תמיד לנוהל המתאים ותציין את מספר הסעיף." Style="{StaticResource Placeholder}" VerticalAlignment="Top" Margin="13.5,9.5,13.5,0" TextWrapping="Wrap"/></Grid>
 
     <!-- Edit only: delete, behind a confirmation. -->
     <Border x:Name="DangerCard" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource DangerLine}" BorderThickness="1" CornerRadius="14" Padding="14,12" Margin="0,18,0,0">

@@ -14,7 +14,8 @@ namespace Chat;
 /// short card beside it with "הבא" / "הקודם" and a close button. Moving on closes what the step opened.</summary>
 public partial class MainWindow
 {
-    private sealed record TourStep(Func<FrameworkElement?> Target, string Title, string Text, Action? Enter = null);
+    /// <summary>Area, when set, is what stays undimmed around the outlined Target (the whole menu around one item).</summary>
+    private sealed record TourStep(Func<FrameworkElement?> Target, string Title, string Text, Action? Enter = null, Func<FrameworkElement?>? Area = null);
     private List<TourStep> tour = [];
     private int tourIndex;
     private Grid? tourLayer;
@@ -32,23 +33,29 @@ public partial class MainWindow
         FrameworkElement? Popover() => OverlayHost.Content as FrameworkElement;
         FrameworkElement? InForm(string name) => tourForm?.FindName(name) as FrameworkElement;
         tourOpensSettings = firstRun && BuildMode.Local && (config == null || string.IsNullOrEmpty(AiCredentials.Resolve(config.Ai)) || LocalAiCatalog.Load().Models.Count == 0);
-        tour = [new(() => null, firstRun ? "ברוכים הבאים ל־Chaty" : "סיור קצר", tourOpensSettings ? "כמה דברים שכדאי להכיר, ובסוף נגדיר את מפתח ה־API." : "כמה דברים שכדאי להכיר.")];
+        var noModels = BuildMode.Local && LocalAiCatalog.Load().Models.Count == 0;
+        tour = [new(() => null, firstRun ? "ברוכים הבאים ל־Chaty" : "סיור קצר", tourOpensSettings ? "כמה דברים שכדאי להכיר, ובסוף נגדיר את החיבור ל־AI." : "כמה דברים שכדאי להכיר.")];
         if (free)
         {
-            tour.Add(new(Popover, "עוזרים", "כאן עוברים בין הצ׳אט הכללי לעוזרים שלכם.", () => PickChatType(this, new())));
+            tour.Add(new(() => ChatTypePicker, "עוזרים", "לחיצה על שם הצ׳אט למעלה פותחת את הרשימה: הצ׳אט הכללי והעוזרים שלכם."));
+            tour.Add(new(() => Descendants(Popover()).OfType<Button>().FirstOrDefault(b => System.Windows.Automation.AutomationProperties.GetName(b) == "עוזר אישי חדש"),
+                "עוזר אישי חדש", "ברשימה, ״עוזר אישי חדש״ יוצר עוזר שעונה מהמסמכים שלכם.", () => PickChatType(this, new()), Popover));
             tour.Add(new(() => InForm("SourcesArea"), "עוזר אישי", "מוסיפים תיקיות או מסמכים, והעוזר עונה רק מהם, עם המקור.", OpenTourForm));
-            tour.Add(new(() => InForm("CustomPrompt"), "הנחיות", "אפשר לכתוב לעוזר איך לענות, למשל בקצרה.", OpenTourForm));
+            tour.Add(new(() => InForm("CustomPrompt"), "הנחיות", "אפשר לכתוב לעוזר איך לענות, למשל באיזה טון או מה לציין תמיד.", OpenTourForm));
         }
-        if (Showing(ModeSwitch)) tour.Add(new(() => ModeSwitch, "מצב תשובה", "מהיר: קצר. מעמיק: מלא ומפורט."));
+        if (Showing(ModeSwitch)) tour.Add(new(() => ModeSwitch, "מצב תשובה", "מהיר: תשובה קצרה. רגיל: מאוזנת. מעמיק: מלאה ומפורטת."));
         if (Showing(MaxSearchButton)) tour.Add(new(() => MaxSearchButton, "חיפוש מקסימלי", "כשמשהו לא נמצא, מחפש לעומק."));
         if (BuildMode.Local && running.Count == 0)
         {
             tour.Add(new(() => Descendants(Popover()).OfType<Button>().FirstOrDefault(b => System.Windows.Automation.AutomationProperties.GetName(b) == "הגדרות AI"),
-                "הגדרות AI", "נמצאות בתפריט.", () => ShowOptions(this, new())));
-            tour.Add(new(() => tourSettings?.KeyArea is { } key && Showing(key) ? key : tourSettings, "הגדרות AI", "כאן בוחרים מודל ומדביקים את מפתח ה־API.", OpenTourSettings));
+                "הגדרות AI", "נמצאות בתפריט של שלוש הנקודות למעלה.", () => ShowOptions(this, new()), Popover));
+            // Without config.json there is nothing to choose yet: the file comes first, then the key.
+            var settingsText = noModels ? "קודם שומרים את קובץ ההגדרות config.json בתיקייה שמוצגת כאן ולוחצים על רענון. אחר כך בוחרים מודל ומדביקים את מפתח ה־API."
+                : "כאן בוחרים מודל ומדביקים את מפתח ה־API האישי.";
+            if (tourOpensSettings) settingsText += " בסיום המסך יישאר פתוח להגדרה.";
+            tour.Add(new(() => tourSettings is not { } s ? null : noModels ? s.MissingArea : s.KeyArea is { } key && Showing(key) ? key : s, "הגדרות AI", settingsText, OpenTourSettings));
         }
-        tour.Add(tourOpensSettings ? new(() => null, "מפתח API", "בסיום ייפתחו הגדרות AI. הדביקו שם את מפתח ה־API האישי שלכם ושמרו.")
-            : new(() => null, "זהו", "את השאלה האחרונה אפשר לערוך עם העיפרון שמתחתיה."));
+        if (!tourOpensSettings) tour.Add(new(() => null, "זהו", "את השאלה האחרונה אפשר לערוך עם העיפרון שמתחתיה."));
         tourIndex = 0;
         if (tourLayer == null)
         {
@@ -91,10 +98,12 @@ public partial class MainWindow
     private void EndTour()
     {
         if (tourLayer == null || tourLayer.Visibility != Visibility.Visible) return;
+        var keepSettings = tourOpensSettings && tourSettings != null && ScreenHost.Content == tourSettings;
+        if (keepSettings) { tourSettings = null; tourOpensSettings = false; }
         TourReset(null);
         tourLayer.Visibility = Visibility.Collapsed;
         ClearTourLayer();
-        Question.Focus();
+        if (!keepSettings) Question.Focus();
         if (tourOpensSettings) { tourOpensSettings = false; _ = OpenLocalSettingsAsync(); }
     }
     /// <summary>Removes the step's parts and stops the outline's pulse, which would otherwise keep running unseen.</summary>
@@ -124,18 +133,20 @@ public partial class MainWindow
         var size = new Size(PanelRoot.ActualWidth, PanelRoot.ActualHeight);
         ClearTourLayer();
         // The dimmed panel with a rounded hole around the part this step explains, outlined in white.
-        Rect? hole = null;
-        if (step.Target() is { } target && Showing(target))
+        Rect? Bounds(FrameworkElement? element)
         {
-            var bounds = target.TransformToAncestor(PanelRoot).TransformBounds(new Rect(target.RenderSize));
+            if (element == null || !Showing(element)) return null;
+            var bounds = element.TransformToAncestor(PanelRoot).TransformBounds(new Rect(element.RenderSize));
             bounds.Inflate(4, 4);
             bounds.Intersect(new Rect(size));
-            hole = bounds;
+            return bounds;
         }
+        var mark = Bounds(step.Target());
+        Rect? hole = mark is { } m && Bounds(step.Area?.Invoke()) is { } area ? Rect.Union(area, m) : mark;
         Geometry shade = new RectangleGeometry(new Rect(size));
         if (hole is { } h) shade = new CombinedGeometry(GeometryCombineMode.Exclude, shade, new RectangleGeometry(h, 10, 10));
         tourLayer.Children.Add(new System.Windows.Shapes.Path { Data = shade, Fill = new SolidColorBrush(Color.FromArgb(0xC4, 0x0B, 0x11, 0x20)), IsHitTestVisible = false });
-        if (hole is { } ring)
+        if (mark is { } ring)
         {
             var outline = new Border { Width = ring.Width + 6, Height = ring.Height + 6, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(ring.X - 3, ring.Y - 3, 0, 0),
                 CornerRadius = new CornerRadius(13), BorderBrush = Theme.Brush("AssistantBrush"), BorderThickness = new Thickness(3), IsHitTestVisible = false,
@@ -154,7 +165,7 @@ public partial class MainWindow
         if (hole is { } spot) { below = spot.Bottom + 18 + height <= size.Height - 12; top = below ? spot.Bottom + 18 : Math.Max(12, spot.Top - 18 - height); }
         else top = Math.Max(12, (size.Height - height) / 2);
         // A small arrow on the card's edge, under (or over) the middle of the part it explains.
-        if (hole is { } part)
+        if (mark is { } part)
         {
             var left = (size.Width - width) / 2;
             var x = Math.Clamp(part.X + part.Width / 2, left + 22, left + width - 22);

@@ -15,6 +15,8 @@ public sealed class LocalSettingsPanel : UserControl
     public void Cancel() => Completed?.Invoke(null);
     /// <summary>The API key part of the screen.</summary>
     public FrameworkElement? KeyArea { get; private set; }
+    /// <summary>The card that says config.json is missing and where to save it.</summary>
+    public FrameworkElement? MissingArea { get; private set; }
     public LocalSettingsPanel(Config current)
     {
         FlowDirection = FlowDirection.RightToLeft; FontFamily = (FontFamily)FindResource("UiFont");
@@ -48,7 +50,7 @@ public sealed class LocalSettingsPanel : UserControl
         // small "edit" link next to the model label (opens its folder with the file selected; the reload button applies the changes).
         void Run(string exe, string argument) { try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe) { ArgumentList = { argument }, UseShellExecute = false }); } catch { } }
         var missing = new StackPanel();
-        var missingCard = new Border { Background = Theme.Brush("Surface"), BorderBrush = Theme.Brush("Line"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 12, 14, 12), Margin = new Thickness(0, 0, 0, 20), Child = missing };
+        var missingCard = new Border { Background = Theme.Brush("Surface"), BorderBrush = Theme.Brush("Line"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 12, 14, 12), Margin = new Thickness(0, 0, 0, 20), Child = missing }; MissingArea = missingCard;
         panel.Children.Add(missingCard);
         missing.Children.Add(new TextBlock { Text = "לא נמצא קובץ ההגדרות של ה־AI. כדי לבחור מודל, שמרו אותו בתיקייה הזו:", FontSize = 12.5, Foreground = Theme.Brush("Secondary"), TextWrapping = TextWrapping.Wrap, LineHeight = 18 });
         // The path on its own line, left to right and selectable, so it can be copied.

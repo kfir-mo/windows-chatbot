@@ -151,26 +151,32 @@ internal static class Program
    if (((TextBlock)main.FindName("NormalLabel")).Margin.Left != 0 || ((TextBlock)main.FindName("FastLabel")).Margin.Left == 0) throw new Exception("Only the chosen answer mode shows its name.");
    Console.WriteLine("PASS: answer mode switch (fast, normal, deep)");
 
-   // The tour (here as on the first start, with no API key): step by step, "הבא" to the end, ending on the key; then it
-   // closes and opens the AI settings.
+   // The tour (here as on the first start, with no API key): step by step, "הבא" to the end, ending on the AI settings,
+   // which stay open for the user to fill in.
    ((FrameworkElement)main.FindName("Panel")).Visibility = Visibility.Visible; ((FrameworkElement)main.FindName("LoginOverlay")).Visibility = Visibility.Collapsed;
    Layout((FrameworkElement)main.Content, 400, 680);
    // The settings the app starts with (no API key in the temp profile), so the AI settings screen can open.
    typeof(MainWindow).GetField("config", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(main, new Config());
+   // Personal assistants allowed, so the tour also opens the assistant list and the new assistant form.
+   foreach (var flag in new[] { "personalAllowed", "loggedIn" }) typeof(MainWindow).GetField(flag, System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(main, true);
    typeof(MainWindow).GetMethod("StartTour", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance, [typeof(bool)])!.Invoke(main, [true]);
    var tourLayer = ((Grid)main.FindName("PanelRoot")).Children.OfType<Grid>().Last();
    string TourStep() { Layout((FrameworkElement)main.Content, 400, 680); return Descendants(tourLayer).OfType<Border>().Select(Name).First(n => n.StartsWith("סיור באפליקציה")); }
    if (tourLayer.Visibility != Visibility.Visible || !TourStep().Contains("שלב 1 מתוך")) throw new Exception("The tour must start at its first step.");
-   var lastStep = "";
-   for (var steps = 0; tourLayer.Visibility == Visibility.Visible; steps++)
+   var steps = new List<string>();
+   while (tourLayer.Visibility == Visibility.Visible)
    {
-    if (steps > 12) throw new Exception("The tour does not end.");
-    lastStep = TourStep(); Click(Descendants(tourLayer).OfType<Button>().Last(b => b.Content is "הבא" or "סיום"));
+    if (steps.Count > 12) throw new Exception("The tour does not end.");
+    steps.Add(TourStep());
+    if (steps[^1].EndsWith(": עוזר אישי חדש") && ((ContentControl)main.FindName("OverlayHost")).Content == null) throw new Exception("The new-assistant step must show the open list.");
+    Click(Descendants(tourLayer).OfType<Button>().Last(b => b.Content is "הבא" or "סיום"));
    }
-   if (!lastStep.Contains("מפתח API")) throw new Exception("The first-start tour must end on the API key.");
-   if (((ContentControl)main.FindName("ScreenHost")).Content is not LocalSettingsPanel keyScreen) throw new Exception("The first-start tour must open the AI settings at the end.");
+   foreach (var title in new[] { ": עוזרים", ": עוזר אישי חדש", ": עוזר אישי", ": הנחיות" })
+    if (!steps.Any(s => s.EndsWith(title))) throw new Exception("The tour is missing the step" + title + " in " + string.Join(" | ", steps));
+   if (!steps[^1].EndsWith(": הגדרות AI")) throw new Exception("The first-start tour must end on the AI settings.");
+   if (((ContentControl)main.FindName("ScreenHost")).Content is not LocalSettingsPanel keyScreen) throw new Exception("The first-start tour must leave the AI settings open.");
    keyScreen.Cancel(); Layout((FrameworkElement)main.Content, 400, 680);
-   Console.WriteLine("PASS: tour of the app (first start: from the first step to the API key, then the AI settings)");
+   Console.WriteLine("PASS: tour of the app (first start: how to open assistants, then the AI settings left open to fill in)");
    Click((Button)main.FindName("HelpButton"));
    if (((ContentControl)main.FindName("OverlayHost")).Content is not FrameworkElement about || Name(about) != "אודות Chaty") throw new Exception("The \"i\" must open About.");
    typeof(MainWindow).GetMethod("CloseOverlay", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.Invoke(main, [true]);
