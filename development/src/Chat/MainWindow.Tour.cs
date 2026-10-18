@@ -31,7 +31,7 @@ public partial class MainWindow
         var free = running.Count == 0 && personalAllowed;
         FrameworkElement? Popover() => OverlayHost.Content as FrameworkElement;
         FrameworkElement? InForm(string name) => tourForm?.FindName(name) as FrameworkElement;
-        tourOpensSettings = firstRun && BuildMode.Local && (config == null || string.IsNullOrEmpty(AiCredentials.Resolve(config.Ai)));
+        tourOpensSettings = firstRun && BuildMode.Local && (config == null || string.IsNullOrEmpty(AiCredentials.Resolve(config.Ai)) || LocalAiCatalog.Load().Models.Count == 0);
         tour = [new(() => null, firstRun ? "ברוכים הבאים ל־Chaty" : "סיור קצר", tourOpensSettings ? "כמה דברים שכדאי להכיר, ובסוף נגדיר את מפתח ה־API." : "כמה דברים שכדאי להכיר.")];
         if (free)
         {

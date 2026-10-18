@@ -171,7 +171,7 @@ public sealed class LocalSettingsPanel : UserControl
         }
         void Result(string text, string token) { result.Text = text; result.Foreground = Theme.Brush(token); result.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed; }
         void Untested() { if (deleting || savedKey.Length == 0 && key.Password.Length == 0) Pill("חסר מפתח", "#F0F1F4", "#4A5160", null); else Pill("לא נבדק", "#F0F1F4", "#4A5160", null); }
-        bool NeedsKey() => catalog.Models.Count > 0 && catalog.Apply(current, (string)model.SelectedItem).Ai.Authentication is "bearer" or "header";
+        bool NeedsKey() => catalog.Models.Count > 0 && catalog.Apply(current, model.SelectedItem as string).Ai.Authentication is "bearer" or "header";
         void ShowKey()
         {
             var showMask = savedKey.Length > 0 && !(editing && !deleting);
@@ -189,7 +189,7 @@ public sealed class LocalSettingsPanel : UserControl
         }
         void LockKey()
         {
-            var settings = catalog.Apply(current, (string)model.SelectedItem).Ai;
+            var settings = catalog.Apply(current, model.SelectedItem as string).Ai;
             var needsKey = NeedsKey();
             keySection.Visibility = needsKey ? Visibility.Visible : Visibility.Collapsed;
             keyless.Visibility = catalog.Models.Count > 0 && !needsKey ? Visibility.Visible : Visibility.Collapsed;
@@ -220,7 +220,7 @@ public sealed class LocalSettingsPanel : UserControl
         Config Read()
         {
             if (catalog.Models.Count == 0) throw new InvalidOperationException(catalog.Problem ?? "לא הוגדרו מודלים בקובץ ההגדרות.");
-            var value = catalog.Apply(current, (string)model.SelectedItem);
+            var value = catalog.Apply(current, model.SelectedItem as string);
             value.Validate();
             return value;
         }
