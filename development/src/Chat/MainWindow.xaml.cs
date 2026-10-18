@@ -41,6 +41,7 @@ public partial class MainWindow : Window
         HistoryView.ConversationSelected += async selected => await OpenConversationAsync(selected);
         HistoryView.BackRequested += () => { ShowPage("chat"); Question.Focus(); };
         HistoryView.DeleteRequested = DeleteConversation;
+        HistoryView.RestoreRequested = RestoreConversation;
         HistoryView.StateFor = StateOf;
         HistoryView.LookFor = conversation => { var look = LookOf(chatTypes.FirstOrDefault(t => t.Id == conversation.ChatTypeId)); return (Looks.Brush(look.Color), look.Glyph); };
         // The panel's children are square; one rounded clip keeps every screen inside the panel's corners.
@@ -48,8 +49,9 @@ public partial class MainWindow : Window
         // Messages are read-only text boxes, and a text box swallows the mouse wheel even when it has nothing to scroll:
         // the conversation itself scrolls wherever the pointer is (a wheel notch is three 16 px lines, as elsewhere in Windows).
         Scroll.PreviewMouseWheel += (_, e) => { Scroll.ScrollToVerticalOffset(Scroll.VerticalOffset - e.Delta * 0.4); e.Handled = true; };
-        // The chat area's empty background also takes the double-click (also when the message list has handled the click).
-        ChatPage.AddHandler(MouseLeftButtonDownEvent, new MouseButtonEventHandler(BackgroundDoubleClick), true);
+        // Every page's empty background takes the double-click (the header, chat, history, the assistant form, settings),
+        // also when something inside has already handled the click.
+        PanelRoot.AddHandler(MouseLeftButtonDownEvent, new MouseButtonEventHandler(BackgroundDoubleClick), true);
         Loaded += (_, _) => Anchor();
         // The status line is short; its tooltip carries the full text plus any indexing warnings.
         Status.ToolTipOpening += (_, _) => Status.ToolTip = statusDetail == null ? Status.Text : Status.Text + "\n\n" + statusDetail;
@@ -62,8 +64,9 @@ public partial class MainWindow : Window
         SystemParameters.StaticPropertyChanged += WorkAreaChanged;
         Closed += (_, _) => { SystemEvents.DisplaySettingsChanged -= DisplayChanged; SystemParameters.StaticPropertyChanged -= WorkAreaChanged; };
         // The app lives in the notification area (next to the clock) instead of the taskbar.
+        SourceInitialized += (_, _) => RegisterOpenKey();
         SourceInitialized += (_, _) => tray ??= new TrayIcon(BuildMode.Local ? "Chaty" : "Chat", ToggleFromTray,
-            ("פתיחת הצ׳אט", RestoreFromTaskbar), ("הסתרה", () => HideApp(this, new())), ("-", () => { }), ("יציאה", () => Application.Current.Shutdown()));
+            ("פתיחת הצ׳אט · " + HotKeyName, RestoreFromTaskbar), ("הסתרה", () => HideApp(this, new())), ("-", () => { }), ("יציאה", () => Application.Current.Shutdown()));
     }
     private TrayIcon? tray;
     private void ToggleFromTray()
@@ -141,12 +144,13 @@ public partial class MainWindow : Window
     }
     private void GripUp(object s, MouseButtonEventArgs e) { gripStart = null; ((UIElement)s).ReleaseMouseCapture(); }
     private void ResetPanelSize() { panelWidth = BaseWidth; panelHeight = BaseHeight; Anchor(); }
-    /// <summary>A double-click on an empty part of the header or the chat restores the base size. Text, buttons and fields keep their own double-click.</summary>
+    /// <summary>A double-click on an empty part of any page restores the base size. Text, buttons and fields keep their own double-click.</summary>
     private void BackgroundDoubleClick(object s, MouseButtonEventArgs e)
     {
-        if (e.ClickCount != 2 || !expanded) return;
+        if (e.ClickCount != 2 || !expanded || tourLayer?.Visibility == Visibility.Visible) return;
         for (var element = e.OriginalSource as DependencyObject; element != null && element != s; element = element is Visual or System.Windows.Media.Media3D.Visual3D ? VisualTreeHelper.GetParent(element) : LogicalTreeHelper.GetParent(element))
-            if (element is System.Windows.Controls.Primitives.ButtonBase or System.Windows.Controls.Primitives.TextBoxBase or System.Windows.Controls.Primitives.ScrollBar or System.Windows.Controls.Primitives.ToggleButton) return;
+            if (element is System.Windows.Controls.Primitives.ButtonBase or System.Windows.Controls.Primitives.TextBoxBase or System.Windows.Controls.Primitives.ScrollBar or PasswordBox
+                or System.Windows.Controls.Primitives.Selector or System.Windows.Controls.Primitives.RangeBase or System.Windows.Controls.Primitives.Thumb or System.Windows.Documents.Hyperlink) return;
         if (panelWidth == BaseWidth && panelHeight == BaseHeight) return;
         e.Handled = true;
         ResetPanelSize();
@@ -168,15 +172,26 @@ public partial class MainWindow : Window
         // While an answer is on its way the moving dots stay instead of the glyph.
         ChatGlyph.Visibility = open || thinking ? Visibility.Collapsed : Visibility.Visible;
         CloseGlyph.Visibility = open && !thinking ? Visibility.Visible : Visibility.Collapsed;
-        Bubble.ToolTip = open ? "סגירת הצ׳אט" : "פתיחת הצ׳אט";
+        Bubble.ToolTip = (open ? "סגירת הצ׳אט" : "פתיחת הצ׳אט") + " (" + HotKeyName + ")";
         if (SystemParameters.ClientAreaAnimation)
             GlyphTurn.BeginAnimation(System.Windows.Media.RotateTransform.AngleProperty, new DoubleAnimation(open ? -90 : 90, 0, TimeSpan.FromMilliseconds(200)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
     }
     private void WindowKeyDown(object s, KeyEventArgs e)
     {
+        // Ctrl+Shift+C copies the last answer of the conversation on screen.
+        if (e.Key == Key.C && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift) && expanded && ScreenLayer.Visibility != Visibility.Visible && HistoryView.Visibility != Visibility.Visible)
+        {
+            e.Handled = true;
+            if (current.Messages.LastOrDefault(m => m.Role == "assistant" && m.Text.Length > 0) is not { } last) { Notice("אין עדיין תשובה להעתקה.", false); return; }
+            try { Clipboard.SetText(MessageView.PlainText(last.Text)); Notice("התשובה האחרונה הועתקה.", false); } catch { Notice("לא ניתן להעתיק את התשובה."); }
+            return;
+        }
         if (e.Key != Key.Escape || !expanded) return;
-        // Escape closes the innermost layer first: a popover, then history; the forms handle their own Escape.
-        if (overlayKind != null) CloseOverlay();
+        // Escape closes the innermost layer first: a popover, an edit of the last question, then history; the forms handle their own Escape.
+        if (TourOpen) EndTour();
+        else if (SourcesLayer.Visibility == Visibility.Visible) CloseSources();
+        else if (overlayKind != null) CloseOverlay();
+        else if (editing != null && ScreenLayer.Visibility != Visibility.Visible && HistoryView.Visibility != Visibility.Visible) StopEditing(true);
         else if (ScreenLayer.Visibility == Visibility.Visible) return;
         else if (HistoryView.Visibility == Visibility.Visible) { ShowPage("chat"); Question.Focus(); }
         else CollapsePanel(s, e);
@@ -187,7 +202,7 @@ public partial class MainWindow : Window
         if (!expanded) return;
         var version = ++panelAnimationVersion;
         expanded = false;
-        CloseOverlay(false);
+        CloseOverlay(false); CloseSources(); EndTour();
         SetLauncherGlyph(false);
         AnimatePanel(false, () =>
         {
@@ -216,7 +231,7 @@ public partial class MainWindow : Window
     /// <summary>"chat" shows the conversation, "history" the history page under the header.</summary>
     private void ShowPage(string page)
     {
-        CloseOverlay(false);
+        CloseOverlay(false); CloseSources();
         ScreenHost.Content = null;
         ScreenLayer.Visibility = Visibility.Collapsed;
         HistoryView.Visibility = page == "history" ? Visibility.Visible : Visibility.Collapsed;
@@ -296,10 +311,22 @@ public partial class MainWindow : Window
     {
         var position = conversations.IndexOf(conversation);
         if (position < 0 || running.ContainsKey(conversation)) return false;
-        waitingQuestions.Remove(conversation); unseen.Remove(conversation); UpdateIndicators();
+        unseen.Remove(conversation); UpdateIndicators();
         conversations.RemoveAt(position);
         if (!Save()) { conversations.Insert(position, conversation); return false; }
-        if (current.Id == conversation.Id) { current = new() { ChatTypeId = activeTypeId }; Question.Clear(); Messages.Children.Clear(); Welcome.Visibility = Visibility.Visible; }
+        deleted = (conversation, position);
+        if (current.Id == conversation.Id) { current = new() { ChatTypeId = activeTypeId }; StopEditing(false); Question.Clear(); Messages.Children.Clear(); Welcome.Visibility = Visibility.Visible; }
+        RefreshWelcome();
+        return true;
+    }
+    /// <summary>The last deleted conversation and its place, for "ביטול" in the history.</summary>
+    private (Conversation Conversation, int Position)? deleted;
+    private bool RestoreConversation(Conversation conversation)
+    {
+        if (deleted is not { } last || last.Conversation != conversation || conversations.Contains(conversation)) return false;
+        conversations.Insert(Math.Min(last.Position, conversations.Count), conversation);
+        if (!Save()) { conversations.Remove(conversation); return false; }
+        deleted = null;
         RefreshWelcome();
         return true;
     }
@@ -315,6 +342,8 @@ public partial class MainWindow : Window
         var task = indexTask = IndexCoreAsync(force);
         try { await task; }
         finally { if (indexTask == task) indexTask = null; }
+        // The landing page orders folders by how many documents they hold: now it knows.
+        if (Welcome.Visibility == Visibility.Visible && !switchingType) RefreshWelcome();
         if (sendWhenReady && sourcesReady && !Busy && !switchingType) { sendWhenReady = false; Send(this, new()); }
     }
     private async Task IndexCoreAsync(bool force)
@@ -417,12 +446,18 @@ public partial class MainWindow : Window
         }
         Question.Clear();
         CloseNotice(this, new());
-        DiscardClarify();
+        // An edited question replaces the old one and everything after it (its answer).
+        if (editing != null && current.Messages.IndexOf(editing) is var at and >= 0)
+        {
+            current.Messages.RemoveRange(at, current.Messages.Count - at);
+            if (current.SummarizedCount > at) { current.Summary = ""; current.SummarizedCount = 0; }
+        }
+        StopEditing(false);
         current.ChatTypeName = chatTypes.First(t => t.Id == activeTypeId).Name;
-        current.Messages.Add(new("user", q, DateTimeOffset.Now, []) { File = file });
+        current.Messages.Add(new("user", q, DateTimeOffset.Now, []) { File = file, Mode = CurrentMode().ToString() });
         ClearAttachment();
         if (!conversations.Any(c => c.Id == current.Id)) conversations.Add(current);
-        await AnswerAsync(q, file, true);
+        await AnswerAsync(q, file);
     }
     /// <summary>Answers being prepared, one per conversation: while one works, another chat can be opened and asked.</summary>
     private readonly Dictionary<Conversation, CancellationTokenSource> running = [];
@@ -431,9 +466,8 @@ public partial class MainWindow : Window
     /// <summary>The conversation on screen is waiting for its answer (its send button is the stop button).</summary>
     private bool Busy => running.ContainsKey(current);
     /// <summary>Answers the conversation's last message, <paramref name="q"/>, in the background of whatever is on screen:
-    /// the result goes to that conversation, and is marked new if it is not the one being looked at. With
-    /// <paramref name="mayClarify"/> deep and maximum modes may ask first (the questions panel); the second try may not.</summary>
-    private async Task AnswerAsync(string q, Attachment? file, bool mayClarify)
+    /// the result goes to that conversation, and is marked new if it is not the one being looked at.</summary>
+    private async Task AnswerAsync(string q, Attachment? file)
     {
         var conversation = current;
         var mode = CurrentMode();
@@ -456,15 +490,10 @@ public partial class MainWindow : Window
             {
                 var answerConfig = AnswerConfig();
                 using var ai = new AiClient(answerConfig);
-                var engine = new ChatEngine(answerConfig, ai, index) { Mode = mode, MayClarify = mayClarify && mode is AnswerMode.Deep or AnswerMode.Maximum };
+                // The final answer is written on screen as it arrives (in every mode).
+                IProgress<string> partial = new Progress<string>(text => ShowPartial(conversation, text));
+                var engine = new ChatEngine(answerConfig, ai, index) { Mode = mode, Partial = partial.Report };
                 answer = await engine.AskAsync(q, conversation, progress, token.Token);
-                // A too broad request: questions above the composer first; the search runs once they are answered.
-                if (engine.Clarifications.Count > 0)
-                {
-                    waitingQuestions[conversation] = new(conversation, q, file, engine.Clarifications);
-                    MarkArrived(conversation);
-                    return;
-                }
                 // Maximum search is for one hard search: after its answer the next question goes back to normal.
                 if (mode == AnswerMode.Maximum && OnScreen()) SetMaxSearch(false);
             }
@@ -482,14 +511,17 @@ public partial class MainWindow : Window
         {
             Storage.Log(config, "chat_failed");
             // On screen a notice; a conversation in the background keeps the failure as its answer, so it is not lost.
-            if (OnScreen()) Notice("הבקשה נכשלה: " + AiErrors.Describe(ex));
+            // No key yet: the notice links to the AI settings, where it is typed.
+            if (OnScreen()) Notice("הבקשה נכשלה: " + AiErrors.Describe(ex), true, ex is MissingKeyException ? ("לחץ כאן להגדרה", () => _ = OpenLocalSettingsAsync()) : null);
             else { conversation.Messages.Add(new("assistant", "הבקשה נכשלה: " + AiErrors.Describe(ex), DateTimeOffset.Now, [])); Save(); MarkArrived(conversation); }
         }
         finally
         {
             running.Remove(conversation); steps.Remove(conversation); token.Dispose();
+            var streamed = partials.Remove(conversation);
             UpdateIndicators();
-            if (OnScreen()) await RenderAsync(); // also clears the step from the header (ShowBusy)
+            // A streamed answer is already on screen: it is not faded in again.
+            if (OnScreen()) await RenderAsync(!streamed); // also clears the step from the header (ShowBusy)
             MemoryTrim.Schedule(Dispatcher, IdleTrimSeconds);
         }
     }
@@ -497,92 +529,18 @@ public partial class MainWindow : Window
     private void ShowBusy()
     {
         var busy = Busy;
-        Typing.Visibility = busy ? Visibility.Visible : Visibility.Collapsed;
+        // Once the answer is being written, the text itself replaces the typing dots.
+        var dots = busy && !partials.ContainsKey(current);
+        Typing.Visibility = dots ? Visibility.Visible : Visibility.Collapsed;
         typingAnimation?.Remove(this); typingAnimation = null;
-        if (busy && SystemParameters.ClientAreaAnimation) { typingAnimation = ((Storyboard)Typing.Resources["TypingMotion"]).Clone(); typingAnimation.Begin(this, true); }
+        if (dots && SystemParameters.ClientAreaAnimation) { typingAnimation = ((Storyboard)Typing.Resources["TypingMotion"]).Clone(); typingAnimation.Begin(this, true); }
         CancelButton.Visibility = busy || indexing && indexRequest != null && CancelButton.Visibility == Visibility.Visible ? Visibility.Visible : Visibility.Collapsed;
         if (busy) Status.Text = steps[current];
         else if (Status.Text.EndsWith('…') && !indexing && !switchingType) Status.Text = IdleStatus();
         UpdateSendState();
     }
 
-    private sealed record ClarifyRequest(Conversation Conversation, string Question, Attachment? File, List<Clarification> Questions)
-    {
-        public string?[] Answers { get; } = new string?[Questions.Count];
-        public int Index { get; set; }
-    }
-    /// <summary>Questions waiting for an answer, per conversation; <see cref="clarify"/> is the one on screen.</summary>
-    private readonly Dictionary<Conversation, ClarifyRequest> waitingQuestions = [];
-    private ClarifyRequest? clarify;
-    /// <summary>The current question, like Claude's: its answers one under another, numbered (a click or the digit answers and
-    /// moves on), then a row to type another answer. Arrows beside the counter move between the questions.</summary>
-    private void ShowClarify()
-    {
-        if (clarify == null) return;
-        var question = clarify.Questions[clarify.Index];
-        var answer = clarify.Answers[clarify.Index];
-        ClarifyQuestion.Text = question.Question;
-        ClarifyCounter.Text = $"{clarify.Index + 1}/{clarify.Questions.Count}";
-        ClarifyNavigation.Visibility = clarify.Questions.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
-        ClarifyPreviousButton.IsEnabled = clarify.Index > 0; ClarifyNextButton.IsEnabled = clarify.Index < clarify.Questions.Count - 1;
-        ClarifyOptions.Children.Clear();
-        for (int i = 0; i < question.Options.Count; i++)
-        {
-            var option = question.Options[i];
-            var row = ClarifyRow((i + 1).ToString(), new TextBlock { Text = option, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Left, FlowDirection = MessageView.DirectionOf(option) }, option == answer);
-            System.Windows.Automation.AutomationProperties.SetName(row, $"{i + 1}. {option}");
-            row.Click += (_, _) => AnswerClarify(option);
-            ClarifyOptions.Children.Add(row);
-        }
-        ClarifyOtherNumber.Text = (question.Options.Count + 1).ToString();
-        ClarifyOther.Text = answer != null && !question.Options.Contains(answer) ? answer : "";
-        ClarifyPanel.Visibility = Visibility.Visible;
-        if (expanded) Dispatcher.BeginInvoke(() => ((UIElement?)ClarifyOptions.Children.OfType<Button>().FirstOrDefault() ?? ClarifyOther).Focus(), System.Windows.Threading.DispatcherPriority.Input);
-    }
-    /// <summary>One answer row: a number tile and the answer; the one chosen before is marked in the assistant's color.</summary>
-    private static Button ClarifyRow(string number, UIElement content, bool chosen)
-    {
-        var grid = new Grid();
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto }); grid.ColumnDefinitions.Add(new ColumnDefinition()); grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        grid.Children.Add(new Border { Width = 24, Height = 24, CornerRadius = new CornerRadius(7), VerticalAlignment = VerticalAlignment.Center, Background = Theme.Brush(chosen ? "AssistantBrush" : "Subtle"),
-            Child = new TextBlock { Text = number, FontSize = 12, FontWeight = FontWeights.SemiBold, Foreground = chosen ? Brushes.White : Theme.Brush("Secondary"), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center } });
-        Grid.SetColumn(content, 1); ((FrameworkElement)content).Margin = new Thickness(10, 0, 6, 0); grid.Children.Add(content);
-        if (chosen) { var check = new Icon("check", 15, Theme.Brush("AssistantBrush"), 2.4) { VerticalAlignment = VerticalAlignment.Center }; Grid.SetColumn(check, 2); grid.Children.Add(check); }
-        var row = new Button { Style = Ui.Style("RowButton"), Content = grid, Padding = new Thickness(8, 7, 10, 7), Margin = new Thickness(0, 0, 0, 6), MinHeight = 40, BorderThickness = new Thickness(1),
-            BorderBrush = Theme.Brush(chosen ? "AssistantBrush" : "Line"), Background = Theme.Brush(chosen ? "AssistantSoftBrush" : "Surface") };
-        Ui.SetCornerRadius(row, new CornerRadius(10));
-        return row;
-    }
-    private void AnswerClarify(string? answer) { if (clarify == null) return; clarify.Answers[clarify.Index] = answer; if (clarify.Index < clarify.Questions.Count - 1) { clarify.Index++; ShowClarify(); } else _ = FinishClarifyAsync(); }
-    private void ClarifyTyped(object s, TextChangedEventArgs e) { ClarifyOtherHint.Visibility = ClarifyOther.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed; ClarifyOtherSend.Visibility = ClarifyOther.Text.Trim().Length > 0 ? Visibility.Visible : Visibility.Collapsed; }
-    private void ClarifyOtherSent(object s, RoutedEventArgs e) { if (ClarifyOther.Text.Trim() is { Length: > 0 } typed) AnswerClarify(typed); }
-    private void ClarifyKey(object s, KeyEventArgs e) { if (e.Key == Key.Enter) { e.Handled = true; ClarifyOtherSent(s, e); } }
-    /// <summary>Digits answer by number (outside the typing row), like Claude.</summary>
-    private void ClarifyPanelKey(object s, KeyEventArgs e)
-    {
-        if (clarify == null || e.OriginalSource is TextBox) return;
-        var digit = e.Key is >= Key.D1 and <= Key.D9 ? e.Key - Key.D1 : e.Key is >= Key.NumPad1 and <= Key.NumPad9 ? e.Key - Key.NumPad1 : -1;
-        var options = clarify.Questions[clarify.Index].Options;
-        if (digit >= 0 && digit < options.Count) { e.Handled = true; AnswerClarify(options[digit]); }
-        else if (digit == options.Count) { e.Handled = true; ClarifyOther.Focus(); }
-    }
-    private void SkipClarify(object s, RoutedEventArgs e) => AnswerClarify(null);
-    private void ClarifyPrevious(object s, RoutedEventArgs e) { if (clarify is { Index: > 0 }) { clarify.Index--; ShowClarify(); } }
-    private void ClarifyForward(object s, RoutedEventArgs e) { if (clarify != null && clarify.Index < clarify.Questions.Count - 1) { clarify.Index++; ShowClarify(); } }
-    private void CloseClarify(object s, RoutedEventArgs e) => _ = FinishClarifyAsync();
-    /// <summary>The answers join the user's message (in the chat too) and the search runs; it does not ask again.</summary>
-    private async Task FinishClarifyAsync()
-    {
-        var done = clarify; DiscardClarify();
-        if (done == null || running.ContainsKey(done.Conversation) || done.Conversation != current || current.Messages.LastOrDefault() is not { Role: "user" } last) return;
-        var answered = done.Questions.Select((q, i) => (q.Question, Answer: done.Answers[i])).Where(x => x.Answer != null).Select(x => $"{x.Question} {x.Answer}").ToList();
-        var q = answered.Count == 0 ? done.Question : done.Question + "\n" + string.Join("\n", answered);
-        current.Messages[^1] = last with { Text = q };
-        await AnswerAsync(q, done.File, false);
-    }
-    private void DiscardClarify() { if (clarify != null) waitingQuestions.Remove(clarify.Conversation); clarify = null; ClarifyPanel.Visibility = Visibility.Collapsed; UpdateIndicators(); }
-
-    /// <summary>Conversations with an answer (or questions) nobody has looked at yet: a count on the corner button and on
+    /// <summary>Conversations with an answer nobody has looked at yet: a count on the corner button and on
     /// the history button, a dot on their history row. Looking at the conversation clears it.</summary>
     private readonly HashSet<Conversation> unseen = [];
     private Storyboard? thinkingMotion;
@@ -600,7 +558,7 @@ public partial class MainWindow : Window
         System.Windows.Automation.AutomationProperties.SetName(Bubble, on ? "Chaty מכין תשובה. פתיחה או סגירה של הצ׳אט" : "פתיחה או סגירה של הצ׳אט");
     }
     private bool LookingAt(Conversation conversation) => expanded && conversation == current && HistoryView.Visibility != Visibility.Visible && ScreenLayer.Visibility != Visibility.Visible;
-    /// <summary>An answer or questions arrived: shown at once when its conversation is on screen, otherwise marked new.</summary>
+    /// <summary>An answer arrived: shown at once when its conversation is on screen, otherwise marked new.</summary>
     private void MarkArrived(Conversation conversation)
     {
         if (!LookingAt(conversation)) unseen.Add(conversation);
@@ -621,9 +579,19 @@ public partial class MainWindow : Window
     private string StateOf(Conversation conversation) => running.ContainsKey(conversation) ? "running" : unseen.Contains(conversation) ? "ready" : "";    private System.Windows.Threading.DispatcherTimer? noticeTimer;
     /// <summary>A message in full above the composer: errors and guidance stay until closed or the next message is sent,
     /// information closes by itself. The header subtitle only ever holds the short summary or the current step.</summary>
-    private void Notice(string text, bool error = true)
+    /// <summary><paramref name="action"/> adds a blue link at the end of the text, in the same font and size.</summary>
+    private void Notice(string text, bool error = true, (string Label, Action Run)? action = null)
     {
-        NoticeText.Text = text;
+        NoticeText.Inlines.Clear();
+        NoticeText.Inlines.Add(new System.Windows.Documents.Run(text));
+        if (action is { } link)
+        {
+            var hyperlink = new System.Windows.Documents.Hyperlink(new System.Windows.Documents.Run(link.Label)) { Foreground = Theme.Brush("Link"), TextDecorations = null, Cursor = Cursors.Hand };
+            System.Windows.Automation.AutomationProperties.SetName(hyperlink, link.Label);
+            hyperlink.Click += (_, _) => { CloseNotice(this, new()); link.Run(); };
+            NoticeText.Inlines.Add(new System.Windows.Documents.Run(" "));
+            NoticeText.Inlines.Add(hyperlink);
+        }
         NoticeIcon.Kind = error ? "warning" : "info";
         NoticeIcon.SetValue(System.Windows.Documents.TextElement.ForegroundProperty, Theme.Brush(error ? "Danger" : "Secondary"));
         NoticeBar.Visibility = Visibility.Visible;
@@ -716,18 +684,18 @@ public partial class MainWindow : Window
     }
     /// <summary>A saved conversation whose assistant was deleted (and kept in the history): it can be read, not continued.</summary>
     private bool Orphaned => current.HasUserMessages && !chatTypes.Any(t => t.Id == current.ChatTypeId);
-    private async Task RenderAsync()
+    private async Task RenderAsync(bool animate = true)
     {
-        // The conversation on screen brings its own state: questions waiting for it, or its answer still on the way.
-        clarify = waitingQuestions.GetValueOrDefault(current);
-        if (clarify != null) ShowClarify(); else ClarifyPanel.Visibility = Visibility.Collapsed;
+        // An edit belongs to the conversation it started in.
+        if (editing != null && !current.Messages.Contains(editing)) StopEditing(false);
+        // The conversation on screen brings its own state: its answer may still be on the way.
         ShowBusy(); MarkSeen();
         // The folder check compares sources with the active assistant's folders; a kept conversation of a deleted assistant
         // has none to compare with. Access to every source is still checked below.
         if (activeConfig != null && !Orphaned && !chatTypes.Any(t => t.Id == activeTypeId && t.IsManaged)) ChatType.RedactOutsideFolders(current, activeConfig.Documents);
         await Task.Run(() => ChatEngine.RedactInaccessible(current));
         Save();
-        Messages.Children.Clear();
+        Messages.Children.Clear(); liveMessage = null;
         Welcome.Visibility = current.Messages.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         RefreshWelcome();
         if (Orphaned)
@@ -737,11 +705,13 @@ public partial class MainWindow : Window
             System.Windows.Automation.AutomationProperties.SetName(Question, QuestionHint.Text);
         }
         else Question.IsEnabled = true;
+        // The last question can be edited (the pencil under it) while nothing is on its way.
+        var editable = Busy || Orphaned ? null : current.Messages.LastOrDefault(m => m.Role == "user");
         foreach (var m in current.Messages)
         {
-            var message = m.Role == "user" ? MessageView.User(m) : MessageView.Assistant(m, text => Notice(text));
+            var message = m.Role == "user" ? MessageView.User(m, m == editable ? () => BeginEdit(m) : null) : MessageView.Assistant(m, text => Notice(text));
             Messages.Children.Add(message);
-            if (m == current.Messages.Last() && SystemParameters.ClientAreaAnimation)
+            if (m == current.Messages.Last() && animate && SystemParameters.ClientAreaAnimation)
             {
                 message.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(180)));
                 var movement = new TranslateTransform();
@@ -749,9 +719,69 @@ public partial class MainWindow : Window
                 movement.BeginAnimation(TranslateTransform.YProperty, new DoubleAnimation(8, 0, TimeSpan.FromMilliseconds(180)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
             }
         }
+        // Back in a conversation whose answer is being written: the text so far.
+        if (Busy && partials.ContainsKey(current)) RenderLive(false);
         Scroll.UpdateLayout();
         // A new conversation reads from the top of its landing page; an ongoing one shows the latest message.
         if (current.Messages.Count == 0) Scroll.ScrollToTop(); else Scroll.ScrollToEnd();
+    }
+    /// <summary>Answers being written, per conversation: the text so far, shown in place of the typing dots.</summary>
+    private readonly Dictionary<Conversation, string> partials = [];
+    private FrameworkElement? liveMessage;
+    private DispatcherTimer? liveTimer;
+    private void ShowPartial(Conversation conversation, string text)
+    {
+        // A report posted after the answer arrived is late: the answer itself is on screen.
+        if (!running.ContainsKey(conversation)) return;
+        if (text.Length == 0) partials.Remove(conversation); else partials[conversation] = text;
+        if (conversation != current) return;
+        // At most ~16 redraws a second, fewer for a long text: the markdown is laid out again each time.
+        if (liveTimer == null) { liveTimer = new(); liveTimer.Tick += (_, _) => { liveTimer.Stop(); if (Busy) RenderLive(true); }; }
+        // Changing the interval of a running timer restarts it: a fast stream would then never be drawn.
+        if (!liveTimer.IsEnabled) { liveTimer.Interval = TimeSpan.FromMilliseconds(text.Length > 3000 ? 250 : 60); liveTimer.Start(); }
+    }
+    /// <summary>The answer being written, as the last message (without its time or copy button until it is done). The view
+    /// follows the text only when it was already at the bottom, so reading further up is not interrupted.</summary>
+    private void RenderLive(bool follow)
+    {
+        var atEnd = Scroll.VerticalOffset >= Scroll.ScrollableHeight - 24;
+        if (liveMessage != null) { Messages.Children.Remove(liveMessage); liveMessage = null; }
+        if (partials.TryGetValue(current, out var text))
+        {
+            liveMessage = MessageView.Assistant(new("assistant", text, DateTimeOffset.Now, []), _ => { }, true);
+            Messages.Children.Add(liveMessage);
+        }
+        ShowBusy();
+        if (follow && atEnd) { Scroll.UpdateLayout(); Scroll.ScrollToEnd(); }
+    }
+    /// <summary>The last question being edited in the composer; sending replaces it and what came after it.</summary>
+    private ChatMessage? editing;
+    private void BeginEdit(ChatMessage message)
+    {
+        if (Busy || !current.Messages.Contains(message)) return;
+        editing = message;
+        Question.Text = message.Text; Question.CaretIndex = Question.Text.Length;
+        // Its document goes again with it (general chat); in an assistant there is no attach button and no document.
+        if (message.File is { } file && AttachButton.Visibility == Visibility.Visible)
+        {
+            pendingAttachment = file; AttachmentName.Text = file.Name; AttachmentBadge.Content = FileBadge.For(file.Name); AttachmentChip.ToolTip = file.Name; AttachmentChip.Visibility = Visibility.Visible;
+        }
+        EditBar.Visibility = Visibility.Visible;
+        UpdateSendState();
+        Question.Focus();
+    }
+    private void CancelEdit(object s, RoutedEventArgs e) => StopEditing(true);
+    /// <summary>Ends an edit. <paramref name="clear"/> (the X or Escape) also takes its text and document out of the composer;
+    /// sending or leaving the conversation does not.</summary>
+    private void StopEditing(bool clear)
+    {
+        if (editing is not { } was) return;
+        editing = null;
+        EditBar.Visibility = Visibility.Collapsed;
+        if (!clear) return;
+        if (Question.Text == was.Text) Question.Clear();
+        if (was.File != null && pendingAttachment == was.File) ClearAttachment();
+        Question.Focus();
     }
     private void QuestionKey(object s, KeyEventArgs e)
     {
@@ -918,8 +948,37 @@ public partial class MainWindow : Window
             : documents ? "התשובות מבוססות על התיקיות המחוברות בלבד, וכל תשובה כוללת הפניה למסמך המקור."
             : "לעוזר הזה אין עדיין תיקיות מסמכים, לכן הוא עונה כמו שיחה חופשית, לפי ההנחיות שלו.";
         // Connected folders: read-only tags that open the folder in Explorer. All of them wrap; nothing scrolls sideways.
+        // Up to 2 sources: their tags side by side. More: the first one (the folder with the most documents, when there is a
+        // folder), then one tag with the counts of the rest ("3 📁 4 📄"); a click opens all of them in a short list that
+        // floats over the chat (it pushes nothing down) and closes on a click outside.
+        CloseSources();
         WelcomeSources.Children.Clear();
-        if (!general && !type!.IsManaged) foreach (var path in type.Paths) WelcomeSources.Children.Add(FolderTag(path));
+        if (!general && !type!.IsManaged)
+        {
+            var sources = OrderedSources(type);
+            if (sources.Count <= 2) foreach (var source in sources) WelcomeSources.Children.Add(FolderTag(source.Path, source.Document));
+            else
+            {
+                WelcomeSources.Children.Add(FolderTag(sources[0].Path, sources[0].Document));
+                var rest = sources.Skip(1).ToList();
+                int folders = rest.Count(s => !s.Document), files = rest.Count - folders;
+                var counts = new StackPanel { Orientation = Orientation.Horizontal };
+                void Count(int count, string glyph)
+                {
+                    if (count == 0) return;
+                    counts.Children.Add(new TextBlock { Text = count.ToString(), FontSize = 13, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(counts.Children.Count == 0 ? 0 : 12, 0, 5, 0) });
+                    counts.Children.Add(new Icon(glyph, 16, Looks.Brush("orange")) { VerticalAlignment = VerticalAlignment.Center });
+                }
+                Count(folders, "folder"); Count(files, "file");
+                var chevron = new Icon("chevron-down", 14, Theme.Brush("Muted"), 2.2) { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
+                counts.Children.Add(chevron);
+                var summary = (folders > 0 ? folders == 1 ? "תיקייה אחת" : $"{folders} תיקיות" : "") + (folders > 0 && files > 0 ? " ו־" : "") + (files > 0 ? files == 1 ? "מסמך אחד" : $"{files} מסמכים" : "");
+                var toggle = new Button { Style = Ui.Style("PillButton"), Content = counts, Padding = new Thickness(14, 6, 12, 6), Margin = new Thickness(3), ToolTip = "עוד " + summary };
+                System.Windows.Automation.AutomationProperties.SetName(toggle, "הצגת כל המקורות: עוד " + summary);
+                toggle.Click += (_, _) => OpenSources(toggle, chevron, sources);
+                WelcomeSources.Children.Add(toggle);
+            }
+        }
         WelcomeSources.Visibility = WelcomeSources.Children.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         // Assistants show their last questions; general chat (and an assistant without history) suggests some.
         List<Conversation> recent = general ? [] : conversations.Where(c => c.ChatTypeId == activeTypeId && c.HasUserMessages).OrderByDescending(c => c.Messages.Last().Time).Take(3).ToList();
@@ -942,7 +1001,39 @@ public partial class MainWindow : Window
         FitWelcome(); Dispatcher.BeginInvoke(FitWelcome, System.Windows.Threading.DispatcherPriority.Loaded);
     }
     private bool tileWanted, promoWanted;
-    private void ScrollSizeChanged(object sender, SizeChangedEventArgs e) => FitWelcome();
+    private Icon? sourcesChevron;
+    /// <summary>Opens the list of all sources under the count tag, inside the chat, as wide as fits (at most 300).</summary>
+    private void OpenSources(Button toggle, Icon chevron, List<(string Path, bool Document)> sources)
+    {
+        SourcesRows.Children.Clear();
+        foreach (var source in sources) { var row = FolderTag(source.Path, source.Document, true); row.Click += (_, _) => CloseSources(); SourcesRows.Children.Add(row); }
+        var below = toggle.TranslatePoint(new Point(0, toggle.ActualHeight), ChatPage);
+        SourcesList.Width = Math.Min(300, ChatPage.ActualWidth - 32);
+        SourcesList.Margin = new Thickness(16, below.Y + 6, 16, 0);
+        SourcesScroll.MaxHeight = Math.Max(120, Math.Min(220, ChatPage.ActualHeight - below.Y - 24));
+        SourcesScroll.ScrollToTop();
+        SourcesLayer.Visibility = Visibility.Visible;
+        sourcesChevron = chevron; chevron.Kind = "chevron-up";
+        Dispatcher.BeginInvoke(() => SourcesRows.Children.OfType<Button>().FirstOrDefault()?.Focus(), System.Windows.Threading.DispatcherPriority.Input);
+    }
+    private void CloseSources()
+    {
+        if (SourcesLayer.Visibility != Visibility.Visible) return;
+        SourcesLayer.Visibility = Visibility.Collapsed;
+        if (sourcesChevron != null) sourcesChevron.Kind = "chevron-down";
+        sourcesChevron = null;
+    }
+    /// <summary>A click beside the list (also on the tag that opened it) closes it.</summary>
+    private void SourcesLayerClicked(object s, MouseButtonEventArgs e) { if (e.OriginalSource == SourcesLayer) { CloseSources(); e.Handled = true; } }
+    /// <summary>An assistant's sources for the landing page: folders first, the one with the most documents (in the loaded index)
+    /// first among them, then single documents.</summary>
+    private List<(string Path, bool Document)> OrderedSources(ChatType type)
+    {
+        var files = index != null && type.Id == activeTypeId ? index.Files : [];
+        int Count(string folder) { var prefix = folder.TrimEnd('\\') + "\\"; return files.Count(f => f.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)); }
+        return type.Paths.Select(p => (Path: p, Document: IsSingleDocument(p))).OrderBy(s => s.Document).ThenByDescending(s => s.Document ? 0 : Count(s.Path)).ToList();
+    }
+    private void ScrollSizeChanged(object sender, SizeChangedEventArgs e) { CloseSources(); FitWelcome(); }
     /// <summary>The landing page never scrolls: when it is taller than the chat area, the least needed parts are hidden in
     /// this order (the top icon, extra suggestions, the assistant invitation, extra recent questions) and return when there is room.</summary>
     private void FitWelcome()
@@ -967,17 +1058,21 @@ public partial class MainWindow : Window
         }
         Welcome.MinHeight = Math.Max(0, Math.Floor(room));
     }
-    private Button FolderTag(string path)
+    /// <summary>A source that is one document (not a folder): shown with a document icon. Decided by its extension only, never
+    /// by asking the disk: an unreachable network share would freeze the window for many seconds.</summary>
+    private static bool IsSingleDocument(string path) => Access.SafeDocument(path);
+    /// <summary>A source as a pill tag, or (<paramref name="row"/>) as a row of the open list of all sources.</summary>
+    private Button FolderTag(string path, bool single, bool row = false)
     {
         var content = new StackPanel { Orientation = Orientation.Horizontal };
-        // A single document is shown as a document, not a folder.
-        var single = Access.SafeDocument(path) && !System.IO.Directory.Exists(path);
         content.Children.Add(new Icon(single ? "file" : "folder", 16, Looks.Brush("orange")) { Margin = new Thickness(0, 0, 7, 0), VerticalAlignment = VerticalAlignment.Center });
         content.Children.Add(new TextBlock { Text = FolderName(path), FontSize = 13, FontWeight = FontWeights.Medium, MaxWidth = 220, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center });
         var tip = new StackPanel();
         tip.Children.Add(new TextBlock { Text = "פתיחה בסייר הקבצים", FontWeight = FontWeights.SemiBold });
         tip.Children.Add(new TextBlock { Text = path, FlowDirection = FlowDirection.LeftToRight, FontFamily = (FontFamily)FindResource("MonoFont"), Margin = new Thickness(0, 2, 0, 0) });
-        var button = new Button { Style = Ui.Style("PillButton"), Content = content, Padding = new Thickness(12, 6, 14, 6), Margin = new Thickness(3), ToolTip = tip };
+        var button = row ? new Button { Style = Ui.Style("RowButton"), Content = content, Padding = new Thickness(10, 7, 10, 7), MinHeight = 36, HorizontalContentAlignment = HorizontalAlignment.Left, ToolTip = tip }
+            : new Button { Style = Ui.Style("PillButton"), Content = content, Padding = new Thickness(12, 6, 14, 6), Margin = new Thickness(3), ToolTip = tip };
+        if (row) Ui.SetCornerRadius(button, new CornerRadius(10));
         System.Windows.Automation.AutomationProperties.SetName(button, "פתיחת התיקייה " + FolderName(path));
         button.Click += async (_, _) =>
         {

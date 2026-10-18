@@ -26,7 +26,7 @@
     <Grid.RowDefinitions><RowDefinition Height="60"/><RowDefinition/></Grid.RowDefinitions>
 
     <!-- Header: solid in the active assistant's color, white text and icons. -->
-    <Border x:Name="HeaderBar" Background="{DynamicResource AssistantBrush}" Padding="10,0,8,0" MouseLeftButtonDown="BackgroundDoubleClick">
+    <Border x:Name="HeaderBar" Background="{DynamicResource AssistantBrush}" Padding="10,0,8,0">
      <Grid x:Name="HeaderGrid"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
       <!-- Symbol and name are one block: it lights up as a whole while the assistant switcher is open. Docked, not stacked:
            the name gets all the width up to the header's buttons, and only then ends with "…". -->
@@ -116,39 +116,6 @@
      <!-- Maximum search costs many AI calls: an orange note above the composer while it is on. The X hides the note only;
           "חזרה לרגיל" leaves the mode (it also ends by itself after one answer). -->
      <StackPanel Grid.Row="1">
-     <!-- Questions before a deep or maximum search of a too broad request, like Claude's: above the composer (not in the chat),
-          one at a time; the answers one under another (a click or its digit answers and moves on), then a row to type another.
-          Arrows beside the counter move between questions; "דילוג" skips one; the X searches with what was answered. -->
-     <Border x:Name="ClarifyPanel" Visibility="Collapsed" Margin="12,0,12,8" Padding="14,10,10,10" CornerRadius="14" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="1" PreviewKeyDown="ClarifyPanelKey" AutomationProperties.LiveSetting="Polite" AutomationProperties.Name="שאלות לפני החיפוש">
-      <Border.Effect><DropShadowEffect BlurRadius="14" ShadowDepth="2" Opacity="0.10"/></Border.Effect>
-      <StackPanel>
-       <Grid>
-        <TextBlock Text="כדי למצוא תשובה מדויקת" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Secondary}" VerticalAlignment="Center"/>
-        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
-         <StackPanel x:Name="ClarifyNavigation" Orientation="Horizontal" Margin="0,0,4,0">
-          <Button x:Name="ClarifyPreviousButton" Style="{StaticResource SmallGhostButton}" Padding="3" Click="ClarifyPrevious" ToolTip="השאלה הקודמת" AutomationProperties.Name="השאלה הקודמת"><local:Icon Kind="chevron-right" Size="15" StrokeWidth="2.2"/></Button>
-          <TextBlock x:Name="ClarifyCounter" FontSize="12" Foreground="{DynamicResource Secondary}" VerticalAlignment="Center" Margin="4,0" FlowDirection="LeftToRight"/>
-          <Button x:Name="ClarifyNextButton" Style="{StaticResource SmallGhostButton}" Padding="3" Click="ClarifyForward" ToolTip="השאלה הבאה" AutomationProperties.Name="השאלה הבאה"><local:Icon Kind="chevron-left" Size="15" StrokeWidth="2.2"/></Button>
-         </StackPanel>
-         <Button Style="{StaticResource SmallGhostButton}" Padding="4" Click="CloseClarify" ToolTip="חיפוש בלי לענות על השאר" AutomationProperties.Name="סגירת השאלות וחיפוש"><local:Icon Kind="close" Size="13" StrokeWidth="2.2"/></Button>
-        </StackPanel>
-       </Grid>
-       <TextBlock x:Name="ClarifyQuestion" FontSize="14" FontWeight="Bold" TextWrapping="Wrap" LineHeight="20" Margin="0,6,4,10"/>
-       <StackPanel x:Name="ClarifyOptions"/>
-       <!-- Another answer: the last numbered row is a field; Enter or the arrow sends it. -->
-       <Border BorderBrush="{DynamicResource Line}" BorderThickness="1" CornerRadius="10" Padding="8,3,4,3" MinHeight="40" Background="{DynamicResource Surface}">
-        <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-         <Border Width="24" Height="24" CornerRadius="7" Background="{DynamicResource Subtle}" VerticalAlignment="Center"><TextBlock x:Name="ClarifyOtherNumber" FontSize="12" FontWeight="SemiBold" Foreground="{DynamicResource Secondary}" HorizontalAlignment="Center" VerticalAlignment="Center"/></Border>
-         <Grid Grid.Column="1" Margin="8,0,4,0">
-          <TextBox x:Name="ClarifyOther" Background="Transparent" BorderThickness="0" FontSize="13.5" VerticalContentAlignment="Center" MinHeight="32" TextChanged="ClarifyTyped" KeyDown="ClarifyKey" AutomationProperties.Name="תשובה אחרת"/>
-          <TextBlock x:Name="ClarifyOtherHint" Text="תשובה אחרת…" Foreground="{DynamicResource Muted}" IsHitTestVisible="False" VerticalAlignment="Center" Margin="2,0" FontSize="13.5"/>
-         </Grid>
-         <Button x:Name="ClarifyOtherSend" Grid.Column="2" Style="{StaticResource IconButton}" Width="32" Height="32" Background="{DynamicResource AssistantBrush}" Foreground="White" local:Ui.CornerRadius="8" Visibility="Collapsed" Click="ClarifyOtherSent" ToolTip="שליחת התשובה" AutomationProperties.Name="שליחת התשובה"><local:Icon Kind="send" Size="15" StrokeWidth="2.2"/></Button>
-        </Grid>
-       </Border>
-       <Button Style="{StaticResource GhostButton}" Content="דילוג" HorizontalAlignment="Right" MinHeight="32" Padding="12,4" FontSize="13" Margin="0,6,0,0" Click="SkipClarify" AutomationProperties.Name="דילוג על השאלה"/>
-      </StackPanel>
-     </Border>
      <Border x:Name="MaxSearchNotice" Visibility="Collapsed" Margin="12,0,12,6" Padding="10,8,4,8" CornerRadius="12" Background="#FFF7ED" BorderBrush="#FED7AA" BorderThickness="1" AutomationProperties.LiveSetting="Polite">
       <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
        <local:Icon Kind="warning" Size="15" StrokeWidth="2" TextElement.Foreground="#C2410C" VerticalAlignment="Top" Margin="0,1,8,0"/>
@@ -161,9 +128,14 @@
      </Border>
      </StackPanel>
      <!-- Composer: the text on top, the fast/normal/deep switch under it (general chat and assistants with folders). -->
-     <Border x:Name="Composer" Grid.Row="2" AllowDrop="True" PreviewDragOver="ComposerDragOver" PreviewDrop="ComposerDrop" Margin="12,4,12,0" CornerRadius="16" BorderThickness="1.5" Padding="6" Background="{DynamicResource Surface}">
-      <Border.Style><Style TargetType="Border"><Setter Property="BorderBrush" Value="{DynamicResource FieldLine}"/><Style.Triggers><Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter Property="BorderBrush" Value="{DynamicResource AssistantBrush}"/></Trigger></Style.Triggers></Style></Border.Style>
-      <StackPanel>
+     <Border x:Name="Composer" Grid.Row="2" AllowDrop="True" PreviewDragOver="ComposerDragOver" PreviewDrop="ComposerDrop" Margin="12,4,12,0" CornerRadius="16" BorderThickness="1" BorderBrush="{DynamicResource FieldLine}" Padding="6" Background="{DynamicResource Surface}">
+            <StackPanel>
+      <!-- Editing the last question (the pencil under it): sending replaces it and everything after it. -->
+      <Grid x:Name="EditBar" Visibility="Collapsed" Margin="8,2,2,2"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+       <local:Icon Kind="pencil" Size="13" StrokeWidth="2.2" TextElement.Foreground="{DynamicResource AssistantBrush}" VerticalAlignment="Center" Margin="0,0,6,0"/>
+       <TextBlock Grid.Column="1" Text="עריכת ההודעה" FontSize="12" Foreground="{DynamicResource Secondary}" TextTrimming="CharacterEllipsis" VerticalAlignment="Center" ToolTip="השליחה תחליף את ההודעה ואת התשובה שאחריה"/>
+       <Button Grid.Column="2" Style="{StaticResource SmallGhostButton}" Padding="4" Click="CancelEdit" ToolTip="ביטול העריכה (Esc)" AutomationProperties.Name="ביטול העריכה"><local:Icon Kind="close" Size="12" StrokeWidth="2.2"/></Button>
+      </Grid>
       <!-- A document attached in general chat waits here until it is sent with the message. -->
       <Border x:Name="AttachmentChip" Visibility="Collapsed" HorizontalAlignment="Left" Margin="6,2,6,4" Padding="8,5,4,5" CornerRadius="10" Background="{DynamicResource Subtle}">
        <StackPanel Orientation="Horizontal"><ContentControl x:Name="AttachmentBadge" Focusable="False" VerticalAlignment="Center"/><TextBlock x:Name="AttachmentName" FontSize="12.5" FontWeight="SemiBold" MaxWidth="220" TextTrimming="CharacterEllipsis" VerticalAlignment="Center"/>
@@ -199,7 +171,19 @@
       </Grid>
       </StackPanel>
      </Border>
-     <TextBlock x:Name="Disclaimer" Grid.Row="3" Text="Chaty עלול לטעות. כדאי לבדוק מידע חשוב." FontSize="11.5" Foreground="{DynamicResource Muted}" HorizontalAlignment="Center" TextAlignment="Center" TextWrapping="Wrap" Margin="12,6,12,8"/>
+     <!-- All of an assistant's sources, opened from the landing page's count tag: a layer over the chat (it pushes nothing
+          down), placed under the tag; a click anywhere else or Escape closes it. -->
+     <Grid x:Name="SourcesLayer" Grid.RowSpan="4" Panel.ZIndex="20" Background="Transparent" Visibility="Collapsed" MouseLeftButtonDown="SourcesLayerClicked">
+      <Border x:Name="SourcesList" HorizontalAlignment="Center" VerticalAlignment="Top" MaxWidth="320" Margin="16,0,16,0" Padding="4" CornerRadius="14" Background="{DynamicResource Surface}" BorderBrush="{DynamicResource Line}" BorderThickness="1" AutomationProperties.Name="כל המקורות">
+       <Border.Effect><DropShadowEffect BlurRadius="16" ShadowDepth="3" Opacity="0.14"/></Border.Effect>
+       <ScrollViewer x:Name="SourcesScroll" MaxHeight="220" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><StackPanel x:Name="SourcesRows"/></ScrollViewer>
+      </Border>
+     </Grid>
+     <!-- The disclaimer, and beside it a small "i" for About (the version, beta, that Chaty can be wrong). -->
+     <Grid Grid.Row="3" HorizontalAlignment="Center" Margin="12,6,12,8"><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+      <TextBlock x:Name="Disclaimer" Text="Chaty עלול לטעות. כדאי לבדוק מידע חשוב." FontSize="11.5" Foreground="{DynamicResource Muted}" TextAlignment="Center" TextWrapping="Wrap" VerticalAlignment="Center"/>
+      <Button x:Name="HelpButton" Grid.Column="1" Style="{StaticResource SmallGhostButton}" Padding="3" Margin="4,-4,0,-4" VerticalAlignment="Center" Foreground="{DynamicResource Muted}" Click="ShowAboutClicked" ToolTip="אודות Chaty" AutomationProperties.Name="אודות Chaty"><local:Icon Kind="info" Size="14" StrokeWidth="2"/></Button>
+     </Grid>
     </Grid>
 
     <!-- Popovers over the chat (assistant switcher, look, menu, about). The header stays visible above the dimmed body. -->
@@ -235,7 +219,7 @@
   <Border x:Name="CornerGrip" Width="16" Height="16" HorizontalAlignment="Left" VerticalAlignment="Top" Margin="-6,-6,0,0" Background="#01FFFFFF" Cursor="SizeNWSE" Panel.ZIndex="6" Visibility="{Binding Visibility, ElementName=Panel}" Tag="corner" MouseLeftButtonDown="GripDown" MouseMove="GripMove" MouseLeftButtonUp="GripUp"/>
 
   <!-- Launcher: always visible, opens and closes the chat. -->
-  <Button x:Name="Bubble" Focusable="False" Grid.Row="1" Width="54" Height="54" Margin="0,0,4,4" HorizontalAlignment="Right" VerticalAlignment="Bottom" Cursor="Hand" Click="TogglePanel" ToolTip="פתיחת הצ׳אט" AutomationProperties.Name="פתיחה או סגירה של הצ׳אט" RenderTransformOrigin="0.5,0.5" FocusVisualStyle="{x:Null}">
+  <Button x:Name="Bubble" Focusable="False" Grid.Row="1" Width="54" Height="54" Margin="0,0,4,4" HorizontalAlignment="Right" VerticalAlignment="Bottom" Cursor="Hand" Click="TogglePanel" ToolTip="פתיחת הצ׳אט (Ctrl+Alt+Space)" AutomationProperties.Name="פתיחה או סגירה של הצ׳אט" RenderTransformOrigin="0.5,0.5" FocusVisualStyle="{x:Null}">
    <Button.RenderTransform><ScaleTransform x:Name="BubbleScale"/></Button.RenderTransform>
    <Button.Effect><DropShadowEffect BlurRadius="16" ShadowDepth="4" Direction="270" Color="#1D4ED8" Opacity="0.35"/></Button.Effect>
    <Button.Template><ControlTemplate TargetType="Button"><Grid>

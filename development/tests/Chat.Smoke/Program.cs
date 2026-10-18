@@ -33,7 +33,7 @@ internal static class Program
    var menu = MainWindow.BuildOptionsMenu("מאגר מידע", false, true, () => refreshed++, () => { }, () => { }, () => { });
    Layout(menu, 300, 400);
    var labels = Names(menu);
-   if (!labels.Contains("רענון המסמכים") || !labels.Contains("הגדרות AI") || !labels.Contains("אודות Chaty") || !labels.Contains("יציאה מ־Chaty")) throw new Exception("Menu items missing: " + string.Join(", ", labels));
+   if (!labels.Contains("רענון המסמכים") || !labels.Contains("הגדרות AI") || !labels.Contains("הסבר על האפליקציה") || !labels.Contains("יציאה מ־Chaty")) throw new Exception("Menu items missing: " + string.Join(", ", labels));
    if (labels.Any(l => l.Contains("הסתרה") || l.Contains("עריכת"))) throw new Exception("The menu must not offer hide-to-tray or edit assistant.");
    Click(Descendants(menu).OfType<Button>().First(b => Name(b) == "רענון המסמכים"));
    if (refreshed != 1) throw new Exception("Refresh did not run.");
@@ -51,28 +51,31 @@ internal static class Program
    Console.WriteLine("PASS: color and symbol picker");
 
    var history = new HistoryPage(); Layout(history, 360, 600);
-   var conversation = new Conversation { ChatTypeName = "כללי", Messages = new() { new("user", "UI regression sample", DateTimeOffset.Now, new()) } };
+   var conversation = new Conversation { ChatTypeName = "כללי", Messages = new() { new("user", "UI regression sample", DateTimeOffset.Now, new()) { Mode = "Fast" } } };
    var older = new Conversation { ChatTypeName = "מאגר מידע", Messages = new() { new("user", "Older question", DateTimeOffset.Now.AddDays(-1), new()) } };
-   bool opened = false, deleted = false, back = false;
+   bool opened = false, back = false; int deletes = 0, restores = 0;
    history.ConversationSelected += _ => opened = true;
    history.BackRequested += () => back = true;
-   history.DeleteRequested = _ => { deleted = true; return true; };
+   history.DeleteRequested = _ => { deletes++; return true; };
+   history.RestoreRequested = _ => { restores++; return true; };
    history.Refresh(new[] { conversation, older }); Layout(history, 360, 600);
    var texts = Descendants(history).OfType<TextBlock>().Select(t => t.Text).ToList();
+   var modeIcons = Descendants(history).OfType<Chat.Icon>().Where(i => i.ToolTip is string tip && tip.Length > 0 && i.Visibility == Visibility.Visible).ToList();
+   if (modeIcons.Count != 1 || modeIcons[0].Kind != "bolt" || !Equals(modeIcons[0].ToolTip, "מהיר")) throw new Exception("History must show the last question's mode icon (only where it is known).");
    if (!texts.Contains("היום") || !texts.Contains("אתמול")) throw new Exception("History is not grouped by day.");
-   var historyButtons = Descendants(history).OfType<Button>().ToArray();
-   Click(historyButtons.First(b => Equals(b.ToolTip, "פתיחת השיחה")));
+   Button HistoryButton(Func<Button, bool> match) { Layout(history, 360, 600); return Descendants(history).OfType<Button>().First(match); }
+   Click(HistoryButton(b => Equals(b.ToolTip, "פתיחת השיחה")));
    if (!opened) throw new Exception("History open did not invoke selection.");
-   Click(historyButtons.First(b => Equals(b.ToolTip, "מחיקת השיחה")));
-   if (deleted) throw new Exception("Deletion occurred before confirmation.");
-   Click(historyButtons.First(b => Equals(b.Content, "ביטול")));
-   if (deleted) throw new Exception("Cancel deleted history.");
-   Click(historyButtons.First(b => Equals(b.ToolTip, "מחיקת השיחה")));
-   Click(historyButtons.First(b => Equals(b.Content, "כן")));
-   if (!deleted) throw new Exception("Confirmed deletion did not run.");
+   // Delete at once, with "ביטול" to bring it back.
+   Click(HistoryButton(b => Name(b) == "מחיקת השיחה"));
+   if (deletes != 1 || ((FrameworkElement)history.FindName("UndoBar")).Visibility != Visibility.Visible) throw new Exception("Delete must remove at once and offer undo.");
+   Click((Button)history.FindName("UndoButton"));
+   if (restores != 1 || ((FrameworkElement)history.FindName("UndoBar")).Visibility == Visibility.Visible) throw new Exception("Undo did not restore the conversation.");
+   Layout(history, 360, 600);
+   if (Descendants(history).OfType<Button>().Count(b => Equals(b.ToolTip, "פתיחת השיחה")) != 2) throw new Exception("The restored conversation is not back in the list.");
    Click(Descendants(history).OfType<Button>().First(b => Name(b) == "חזרה לשיחה"));
    if (!back) throw new Exception("Back did not leave history.");
-   Console.WriteLine("PASS: history grouping, open, delete with confirmation, back");
+   Console.WriteLine("PASS: history grouping, open, delete with undo, back");
 
    Storage.Root = temp;
    var one = Directory.CreateDirectory(Path.Combine(temp, "Docs")).FullName;
@@ -148,6 +151,24 @@ internal static class Program
    if (((TextBlock)main.FindName("NormalLabel")).Margin.Left != 0 || ((TextBlock)main.FindName("FastLabel")).Margin.Left == 0) throw new Exception("Only the chosen answer mode shows its name.");
    Console.WriteLine("PASS: answer mode switch (fast, normal, deep)");
 
+   // The ⋯ menu's "הסבר על האפליקציה" starts the tour: step by step, "הבא" to the end, then it closes.
+   ((FrameworkElement)main.FindName("Panel")).Visibility = Visibility.Visible; ((FrameworkElement)main.FindName("LoginOverlay")).Visibility = Visibility.Collapsed;
+   Layout((FrameworkElement)main.Content, 400, 680);
+   typeof(MainWindow).GetMethod("StartTour", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.Invoke(main, null);
+   var tourLayer = ((Grid)main.FindName("PanelRoot")).Children.OfType<Grid>().Last();
+   string TourStep() { Layout((FrameworkElement)main.Content, 400, 680); return Descendants(tourLayer).OfType<Border>().Select(Name).First(n => n.StartsWith("סיור באפליקציה")); }
+   if (tourLayer.Visibility != Visibility.Visible || !TourStep().Contains("שלב 1 מתוך")) throw new Exception("The tour must start at its first step.");
+   for (var steps = 0; tourLayer.Visibility == Visibility.Visible; steps++)
+   {
+    if (steps > 12) throw new Exception("The tour does not end.");
+    TourStep(); Click(Descendants(tourLayer).OfType<Button>().Last(b => b.Content is "הבא" or "סיום"));
+   }
+   Console.WriteLine("PASS: tour of the app (from the first step to the end)");
+   Click((Button)main.FindName("HelpButton"));
+   if (((ContentControl)main.FindName("OverlayHost")).Content is not FrameworkElement about || Name(about) != "אודות Chaty") throw new Exception("The \"i\" must open About.");
+   typeof(MainWindow).GetMethod("CloseOverlay", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.Invoke(main, [true]);
+   Console.WriteLine("PASS: the \"i\" opens About");
+
    // Maximum search: instead of the three modes, never with them; the orange note's X hides only the note.
    var max = (System.Windows.Controls.Primitives.ToggleButton)main.FindName("MaxSearchButton"); var note = (FrameworkElement)main.FindName("MaxSearchNotice");
    RadioButton Mode(string name) => (RadioButton)main.FindName(name);
@@ -162,32 +183,10 @@ internal static class Program
    if (max.IsChecked == true || note.Visibility == Visibility.Visible || Mode("NormalMode").IsChecked != true) throw new Exception("\"חזרה לרגיל\" must end maximum search and choose normal.");
    Console.WriteLine("PASS: maximum search (clears the modes, note with X and back-to-normal, a mode ends it)");
 
-   // Questions before a broad deep/maximum search, like Claude's: one at a time above the composer, the answers one under
-   // another. Driven through the private members, with a conversation that has no message, so finishing makes no AI request.
+   // Driven through the private members, as the window is never shown.
    const System.Reflection.BindingFlags Private = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance;
    object? Call(string method, params object?[] args) => typeof(MainWindow).GetMethod(method, Private)!.Invoke(main, args);
    var shown = (Conversation)typeof(MainWindow).GetField("current", Private)!.GetValue(main)!;
-   var requestType = typeof(MainWindow).GetNestedType("ClarifyRequest", System.Reflection.BindingFlags.NonPublic)!;
-   typeof(MainWindow).GetField("clarify", Private)!.SetValue(main, Activator.CreateInstance(requestType, shown, "יש לי בעיה במחשב", null,
-       new List<Clarification> { new("באיזו מערכת?", ["Outlook", "Teams"]), new("מה כבר ניסיתם?", []) }));
-   Call("ShowClarify");
-   var panel = (FrameworkElement)main.FindName("ClarifyPanel"); var options = (Panel)main.FindName("ClarifyOptions");
-   var forward = (Button)main.FindName("ClarifyNextButton"); var previous = (Button)main.FindName("ClarifyPreviousButton");
-   if (panel.Visibility != Visibility.Visible || ((TextBlock)main.FindName("ClarifyCounter")).Text != "1/2" || options.Children.Count != 2 || previous.IsEnabled || !forward.IsEnabled
-       || ((TextBlock)main.FindName("ClarifyOtherNumber")).Text != "3") throw new Exception("The first question must show its numbered answers, the typing row and the arrows.");
-   Click(forward); Click(previous);
-   if (((TextBlock)main.FindName("ClarifyQuestion")).Text != "באיזו מערכת?") throw new Exception("The arrows must move between the questions.");
-   Click((Button)options.Children[1]);
-   if (((TextBlock)main.FindName("ClarifyQuestion")).Text != "מה כבר ניסיתם?" || options.Children.Count != 0) throw new Exception("Choosing an answer must move to the next question.");
-   Click(previous);
-   if (!((Grid)((Button)options.Children[1]).Content).Children.OfType<Icon>().Any()) throw new Exception("Going back must show the chosen answer marked.");
-   Click(forward);
-   ((TextBox)main.FindName("ClarifyOther")).Text = "הפעלה מחדש";
-   if (((FrameworkElement)main.FindName("ClarifyOtherSend")).Visibility != Visibility.Visible) throw new Exception("A typed answer must offer its send arrow.");
-   Click((Button)main.FindName("ClarifyOtherSend"));
-   if (panel.Visibility == Visibility.Visible) throw new Exception("Answering the last question must close the panel.");
-   Console.WriteLine("PASS: questions before a broad search (numbered answers under each other, arrows, typed answer, closes after the last)");
-
    // The corner and history buttons: moving dots while answering, a count of conversations with an unseen answer.
    Call("SetThinking", true);
    if (((FrameworkElement)main.FindName("ThinkingDots")).Visibility != Visibility.Visible || ((FrameworkElement)main.FindName("ChatGlyph")).Visibility == Visibility.Visible) throw new Exception("Thinking must show the dots instead of the glyph.");

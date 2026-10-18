@@ -11,23 +11,30 @@ using Knowledge.Core;
 namespace Chat;
 public partial class HistoryPage : UserControl
 {
-    /// <summary>One row: the conversation plus its assistant's color, and its place in the day's card.</summary>
     /// <summary>One row: the conversation plus its assistant's color, its place in the day's card, and its state ("running":
     /// an answer is on the way; "ready": a new answer waits to be seen).</summary>
     public sealed record Item(Conversation Conversation, Brush Badge, string Glyph, Thickness Divider, CornerRadius Corners, string State = "")
     {
         public string Title => Conversation.ShortTitle;
         public string Meta => (string.IsNullOrWhiteSpace(Conversation.ChatTypeName) ? "כללי" : Conversation.ChatTypeName) + " · " + Conversation.Messages.Last().Time.ToLocalTime().ToString("HH:mm");
-        public string AccessibleName => Title + ", " + Meta + State switch { "running" => ", מכין תשובה", "ready" => ", תשובה חדשה", _ => "" };
+        /// <summary>The mode of the last question (the icon of the mode switch), or none for conversations from before modes were saved.</summary>
+        private string LastMode => Conversation.Messages.LastOrDefault(m => m.Role == "user")?.Mode ?? "";
+        public string ModeGlyph => LastMode switch { "Fast" => "bolt", "Normal" => "gauge", "Deep" => "search", "Maximum" => "search-plus", _ => "" };
+        public string ModeName => LastMode switch { "Fast" => "מהיר", "Normal" => "רגיל", "Deep" => "מעמיק", "Maximum" => "חיפוש מקסימלי", _ => "" };
+        /// <summary>Lines the icon up with the text: the speedometer is drawn in the top of its box, the others fill it.</summary>
+        public double ModeShift => LastMode == "Normal" ? 0.5 : -1;
+        public Visibility ModeVisibility => ModeGlyph.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+        public string AccessibleName => Title + ", " + Meta + (ModeName.Length > 0 ? ", " + ModeName : "") + State switch { "running" => ", מכין תשובה", "ready" => ", תשובה חדשה", _ => "" };
     }
     public sealed record Group(string Label, List<Item> Items);
-    private Border? pendingConfirmation;
     private readonly ObservableCollection<Group> groups = new();
     private List<Conversation> all = [];
     private string? typeFilter;
     public event Action<Conversation>? ConversationSelected;
     public event Action? BackRequested;
     public Func<Conversation, bool>? DeleteRequested { get; set; }
+    /// <summary>"ביטול" after a delete: puts the conversation back; false when it could not be saved.</summary>
+    public Func<Conversation, bool>? RestoreRequested { get; set; }
     /// <summary>The badge (color, icon) of a conversation's assistant, so history matches the assistant's look.</summary>
     public Func<Conversation, (Brush Badge, string Glyph)>? LookFor { get; set; }
     public Func<Conversation, string>? StateFor { get; set; }
@@ -35,7 +42,6 @@ public partial class HistoryPage : UserControl
     {
         InitializeComponent();
         GroupList.ItemsSource = groups;
-        PreviewKeyDown += (_, e) => { if (e.Key == Key.Escape && pendingConfirmation != null) { CancelDelete(this, new()); e.Handled = true; } };
     }
     public void FocusStart() => Dispatcher.BeginInvoke(() => SearchBox.Focus(), System.Windows.Threading.DispatcherPriority.Input);
     public void Refresh(IEnumerable<Conversation> conversations)
@@ -43,11 +49,12 @@ public partial class HistoryPage : UserControl
         all = conversations.Where(c => c.HasUserMessages).OrderByDescending(c => c.Messages.Last().Time).ToList();
         if (typeFilter != null && !all.Any(c => c.ChatTypeId == typeFilter)) typeFilter = null;
         Status.Text = "";
+        HideUndo();
         BuildFilters();
         Apply();
     }
-    /// <summary>Shows titles that arrived after the list was built, keeping the search, filter and an open delete question.</summary>
-    public void RefreshTitles() { if (pendingConfirmation == null) Apply(); }
+    /// <summary>Shows titles that arrived after the list was built, keeping the search and filter.</summary>
+    public void RefreshTitles() => Apply();
     private void Back(object sender, RoutedEventArgs e) => BackRequested?.Invoke();
     private void BuildFilters()
     {
@@ -75,48 +82,50 @@ public partial class HistoryPage : UserControl
     private void Apply()
     {
         if (GroupList == null) return;
-        pendingConfirmation = null;
         // Every word must appear somewhere in the conversation (title or any message), in any order.
         var words = SearchBox.Text.Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         bool Matches(Conversation c) => words.All(w => c.ChatTypeName.Contains(w, StringComparison.OrdinalIgnoreCase) || c.Topic.Contains(w, StringComparison.OrdinalIgnoreCase) || c.Messages.Any(m => m.Text.Contains(w, StringComparison.OrdinalIgnoreCase)));
         groups.Clear();
-        var shown = 0;
-        foreach (var day in all.Where(c => (typeFilter == null || c.ChatTypeId == typeFilter) && Matches(c)).GroupBy(c => c.Messages.Last().Time.ToLocalTime().Date))
-        {
-            var list = day.ToList();
-            var items = list.Select((conversation, i) =>
-            {
-                var (badge, glyph) = LookFor?.Invoke(conversation) ?? (Theme.Brush("Accent"), "chat");
-                var first = i == 0; var last = i == list.Count - 1;
-                return new Item(conversation, badge, glyph, new Thickness(0, first ? 0 : 1, 0, 0), new CornerRadius(first ? 14 : 0, first ? 14 : 0, last ? 14 : 0, last ? 14 : 0), StateFor?.Invoke(conversation) ?? "");
-            }).ToList();
-            groups.Add(new(DayLabel(day.Key), items));
-            shown += items.Count;
-        }
-        UpdateEmpty(shown);
+        var shown = all.Where(c => (typeFilter == null || c.ChatTypeId == typeFilter) && Matches(c)).ToList();
+        foreach (var day in shown.GroupBy(c => c.Messages.Last().Time.ToLocalTime().Date))
+            groups.Add(new(DayLabel(day.Key), Items(day.ToList())));
+        UpdateEmpty(shown.Count);
     }
+    private List<Item> Items(List<Conversation> list) => list.Select((conversation, i) =>
+    {
+        var (badge, glyph) = LookFor?.Invoke(conversation) ?? (Theme.Brush("Accent"), "chat");
+        var first = i == 0; var last = i == list.Count - 1;
+        return new Item(conversation, badge, glyph, new Thickness(0, first ? 0 : 1, 0, 0), new CornerRadius(first ? 14 : 0, first ? 14 : 0, last ? 14 : 0, last ? 14 : 0), StateFor?.Invoke(conversation) ?? "");
+    }).ToList();
     private void OpenConversation(object sender, RoutedEventArgs e) => ConversationSelected?.Invoke((Conversation)((Button)sender).Tag);
+    /// <summary>Deletes at once; "ביטול" in the bar at the bottom brings it back for a few seconds (the last one deleted).</summary>
     private void DeleteConversation(object sender, RoutedEventArgs e)
     {
-        if (pendingConfirmation != null) pendingConfirmation.Visibility = Visibility.Collapsed;
-        pendingConfirmation = ((Grid)((Button)sender).Parent).Children.OfType<Border>().First(b => Equals(b.Tag, "confirmation"));
-        pendingConfirmation.Visibility = Visibility.Visible;
-        ((Panel)pendingConfirmation.Child).Children.OfType<Button>().Last().Focus();
-    }
-    private void CancelDelete(object sender, RoutedEventArgs e)
-    {
-        if (pendingConfirmation != null) { pendingConfirmation.Visibility = Visibility.Collapsed; ((Grid)pendingConfirmation.Parent).Children.OfType<Button>().Last().Focus(); }
-        pendingConfirmation = null;
-    }
-    private void ConfirmDelete(object sender, RoutedEventArgs e)
-    {
         var conversation = (Conversation)((Button)sender).Tag;
-        if (DeleteRequested?.Invoke(conversation) != true) { Status.Text = "לא ניתן לשמור את המחיקה. השיחה לא נמחקה."; return; }
-        pendingConfirmation = null;
+        if (DeleteRequested?.Invoke(conversation) != true) { Status.Text = "לא ניתן למחוק את השיחה (ייתכן שתשובה עדיין בדרך)."; return; }
         all.Remove(conversation); Status.Text = "";
         if (typeFilter != null && !all.Any(c => c.ChatTypeId == typeFilter)) typeFilter = null;
         BuildFilters(); Apply();
-        BackButton.Focus();
+        lastDeleted = conversation;
+        UndoBar.Visibility = Visibility.Visible;
+        undoTimer?.Stop();
+        undoTimer = new() { Interval = TimeSpan.FromSeconds(8) };
+        undoTimer.Tick += (_, _) => HideUndo();
+        undoTimer.Start();
+        SearchBox.Focus();
+    }
+    private Conversation? lastDeleted;
+    private System.Windows.Threading.DispatcherTimer? undoTimer;
+    private void HideUndo() { undoTimer?.Stop(); undoTimer = null; lastDeleted = null; UndoBar.Visibility = Visibility.Collapsed; }
+    private void UndoDelete(object sender, RoutedEventArgs e)
+    {
+        if (lastDeleted is not { } conversation) { HideUndo(); return; }
+        HideUndo();
+        if (RestoreRequested?.Invoke(conversation) != true) { Status.Text = "לא ניתן לשחזר את השיחה."; return; }
+        all.Add(conversation);
+        all = all.OrderByDescending(c => c.Messages.Last().Time).ToList();
+        BuildFilters(); Apply();
+        SearchBox.Focus();
     }
     private void UpdateEmpty(int shown)
     {

@@ -50,6 +50,9 @@ public static class AiErrors
     };
 }
 
+/// <summary>No API key for a model that needs one: the chat offers a link to the AI settings.</summary>
+public sealed class MissingKeyException() : InvalidOperationException("לא הוגדר מפתח API. הזינו מפתח בהגדרות ה־AI.");
+
 /// <summary>The server's own 429: there is no budget in Chaty, so this is where answering stops until the server's limit resets.</summary>
 public sealed class RateLimitException(string message, DateTimeOffset? resetsAt) : InvalidOperationException(message)
 {

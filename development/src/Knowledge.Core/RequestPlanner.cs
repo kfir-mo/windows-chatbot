@@ -5,7 +5,6 @@ namespace Knowledge.Core;
 
 public record RequestPlan(bool SearchKnowledge, string Reply, string Query, bool ListDocuments = false, int SourceIndex = 0);
 /// <summary>A question that narrows a broad request, with a few likely answers; the user may also type another.</summary>
-public record Clarification(string Question, List<string> Options);
 
 /// <summary>Decides whether a turn needs organizational evidence before reading the library.</summary>
 public sealed class RequestPlanner(IAiClient ai, string assistantPrompt = "")
@@ -23,7 +22,10 @@ public sealed class RequestPlanner(IAiClient ai, string assistantPrompt = "")
     private const string Instructions = """
         Route the CURRENT employee request using recent context. Write any reply in the language named in answerLanguage.
         Return JSON only: {"action":"reply|search|list|read","reply":"","query":"","sourceIndex":0}.
-        reply: greetings, general knowledge/writing, or genuinely ambiguous requests. Never invent internal facts.
+        This assistant answers ONLY from its documents. reply: greetings, thanks, what this assistant can do, or genuinely
+        ambiguous requests. A general-knowledge or writing request is searched, not answered from your own knowledge,
+        unless the assistant customization above explicitly allows answering beyond the documents; then it may be a reply.
+        Never invent internal facts.
         search: organizational procedures, password resets, permissions, policies, contacts, entitlements, documents,
         or follow-ups about their facts. This app has ONE organization's library: search before asking the user
         which organization or to provide its policies. Query: concise self-contained terms resolving prior context,
@@ -39,14 +41,6 @@ public sealed class RequestPlanner(IAiClient ai, string assistantPrompt = "")
         var raw = await ai.CompleteAsync("Assistant customization:\n" + assistantPrompt + "\n" + Instructions, AiJson.Serialize(new { question, answerLanguage = ChatEngine.AnswerLanguage(question), context }), cancellation);
         return Parse(raw, question);
     }
-    /// <summary>The questions in a {"questions":[{"question","options"}]} reply: at most 3, each with at most 4 answers.</summary>
-    public static List<Clarification> ReadClarifications(JsonElement root) =>
-        root.TryGetProperty("questions", out var list) && list.ValueKind == JsonValueKind.Array
-            ? list.EnumerateArray().Where(q => q.ValueKind == JsonValueKind.Object && q.TryGetProperty("question", out var t) && t.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(t.GetString()))
-                .Select(q => new Clarification(q.GetProperty("question").GetString()!.Trim(),
-                    q.TryGetProperty("options", out var o) && o.ValueKind == JsonValueKind.Array ? o.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.String).Select(x => x.GetString()!.Trim()).Where(x => x.Length > 0).Take(4).ToList() : []))
-                .Take(3).ToList()
-            : [];
 
     public async Task<RequestPlan> ReviewAsync(string question, string context, RequestPlan candidate, CancellationToken cancellation)
     {

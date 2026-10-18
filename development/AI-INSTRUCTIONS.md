@@ -11,7 +11,8 @@ corner of the screen; clicking it opens a 400×680 chat panel, clicking it again
 from its top and left edges; a double-click on an empty part of the header or the chat restores 400×680. Every start
 opens a new, empty general chat. Chaty has no taskbar
 button: it lives in the notification area (tray, next to the clock) — left click toggles the panel, right click
-opens a menu (open / hide / exit); "הסתרה" there hides the corner button too. Users can:
+opens a menu (open / hide / exit); "הסתרה" there hides the corner button too. Ctrl+Alt+Space opens and closes it from
+any program (registered with Windows; if another program already took the key, only the button and tray work). Users can:
 
 - chat freely with an AI model ("צ׳אט כללי", general chat, no documents);
 - create **assistants** ("עוזר אישי"): a name, optional document folders or single documents (by path) and optional
@@ -95,6 +96,16 @@ HTTPS certificates are validated against the **Windows certificate store**. For 
 authority, install its root certificate in Windows (by IT), don't disable validation. Redirects are blocked: the
 url must be the final address.
 
+### Streaming answers
+
+The final answer is shown while it is written: the request carries `"stream": true` and the server answers with
+server-sent events (`text/event-stream`, OpenAI chat-completions deltas or Responses `response.output_text.delta`).
+Only the call that writes the final answer streams (general chat, fast mode, and the reviewer call of the other modes; a
+draft that will still be reviewed is never shown). A server that ignores `stream` and answers with plain JSON works as
+before. A gateway that rejects it (HTTP 400/404/405/415/422/501) is asked again without it, and Chaty stops streaming to
+that address until it restarts. A proxy that buffers the response makes the answer appear at once at the end: nothing
+breaks, only the live text is lost.
+
 ### Rate limit
 
 Chaty has **no request budget of its own**: calls go out until the server answers HTTP 429. Then
@@ -117,7 +128,9 @@ characters (24,000 when `maxInputTokens` is unknown). Assistants with folders ha
 
 **Answer pipeline** — `src/Knowledge.Core/ChatEngine.cs` (`AskAsync`):
 1. `RequestPlanner` (`RequestPlanner.cs`): greetings / "list documents" / "the first one" are handled locally
-   without AI; otherwise the AI routes the question to `reply | search | list | read` (JSON).
+   without AI; otherwise the AI routes the question to `reply | search | list | read` (JSON). An assistant answers
+   only from its documents: `reply` is for greetings and unclear requests, general-knowledge questions are searched,
+   unless the assistant's instructions explicitly allow answering beyond the documents.
 2. Search: `DocumentIndex.SearchAsync` → `PassageCatalog.Rank` (BM25-style keyword ranking with Hebrew prefix
    handling, `SearchText.Tokens`). If nothing matches strictly, a relaxed pass is tried.
 3. `RetrievalText.Budget` trims evidence to the `Documents` limits.

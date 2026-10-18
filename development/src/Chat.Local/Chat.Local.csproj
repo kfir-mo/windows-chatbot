@@ -3,7 +3,7 @@
     <OutputType>WinExe</OutputType><UseWPF>true</UseWPF>
     <ImplicitUsings>disable</ImplicitUsings><ApplicationManifest>../Chat/app.manifest</ApplicationManifest>
     <AssemblyName>Chaty</AssemblyName><ApplicationIcon>../Chat/chaty.ico</ApplicationIcon>
-    <Product>Chaty</Product><AssemblyTitle>Chaty</AssemblyTitle><Description>Chaty</Description><Version>1.1.0</Version><DefineConstants>$(DefineConstants);LOCAL_PROTOTYPE</DefineConstants>
+    <Product>Chaty</Product><AssemblyTitle>Chaty</AssemblyTitle><Description>Chaty</Description><Version>1.2.0</Version><DefineConstants>$(DefineConstants);LOCAL_PROTOTYPE</DefineConstants>
     <EnableDefaultApplicationDefinition>false</EnableDefaultApplicationDefinition>
     <EnableDefaultPageItems>false</EnableDefaultPageItems>
     <!-- Smaller exe and less memory: no localized framework resources (the UI is Hebrew text of its own), workstation GC

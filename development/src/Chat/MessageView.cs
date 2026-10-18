@@ -29,7 +29,8 @@ internal static class MessageView
         return hebrew == 0 && latin > 0 || latin > hebrew * 4 ? FlowDirection.LeftToRight : FlowDirection.RightToLeft;
     }
 
-    public static FrameworkElement User(ChatMessage message)
+    /// <summary>A question; <paramref name="edit"/> (the last question only) adds a pencil beside the copy button.</summary>
+    public static FrameworkElement User(ChatMessage message, Action? edit = null)
     {
         var bubble = new Border
         {
@@ -49,7 +50,7 @@ internal static class MessageView
             column.Children.Add(chip);
         }
         column.Children.Add(bubble);
-        // Under the bubble: the time on its own side and, while the message is hovered or focused, a copy button at the far end.
+        // Under the bubble: the time on its own side and, while the message is hovered or focused, copy (and edit) at the far end.
         var footer = new Grid { Margin = new Thickness(4, 2, 0, 0) };
         footer.Children.Add(new TextBlock { Text = message.Time.ToLocalTime().ToString("HH:mm"), FontSize = 11, Foreground = Theme.Brush("Muted"), HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Center });
         var copy = new Button { Style = Ui.Style("SmallGhostButton"), Content = new Icon("copy", 13, null, 2), Padding = new Thickness(5, 3, 5, 3), HorizontalAlignment = HorizontalAlignment.Right, ToolTip = "העתקת ההודעה", Visibility = Visibility.Hidden };
@@ -60,16 +61,27 @@ internal static class MessageView
             catch { copy.ToolTip = "לא ניתן להעתיק"; }
             await Task.Delay(1600); copy.Content = new Icon("copy", 13, null, 2); copy.ToolTip = "העתקת ההודעה";
         };
-        footer.Children.Add(copy);
+        var actions = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        Button? pencil = null;
+        if (edit != null)
+        {
+            pencil = new Button { Style = Ui.Style("SmallGhostButton"), Content = new Icon("pencil", 13, null, 2), Padding = new Thickness(5, 3, 5, 3), Margin = new Thickness(0, 0, 2, 0), ToolTip = "עריכת ההודעה", Visibility = Visibility.Hidden };
+            System.Windows.Automation.AutomationProperties.SetName(pencil, "עריכת ההודעה");
+            pencil.Click += (_, _) => edit();
+            actions.Children.Add(pencil);
+        }
+        actions.Children.Add(copy);
+        footer.Children.Add(actions);
         column.Children.Add(footer);
-        void ShowCopy() => copy.Visibility = column.IsMouseOver || column.IsKeyboardFocusWithin ? Visibility.Visible : Visibility.Hidden;
+        void ShowCopy() { copy.Visibility = column.IsMouseOver || column.IsKeyboardFocusWithin ? Visibility.Visible : Visibility.Hidden; if (pencil != null) pencil.Visibility = copy.Visibility; }
         column.Background = Brushes.Transparent;
         column.MouseEnter += (_, _) => ShowCopy(); column.MouseLeave += (_, _) => ShowCopy();
         column.IsKeyboardFocusWithinChanged += (_, _) => ShowCopy();
         return column;
     }
 
-    public static FrameworkElement Assistant(ChatMessage message, Action<string> report)
+    /// <summary>An answer; <paramref name="live"/> is one still being written: no time or copy button yet.</summary>
+    public static FrameworkElement Assistant(ChatMessage message, Action<string> report, bool live = false)
     {
         var grid = new Grid { Margin = new Thickness(14, 4, 0, 8) };
         grid.ColumnDefinitions.Add(new ColumnDefinition());
@@ -87,6 +99,7 @@ internal static class MessageView
             CornerRadius = new CornerRadius(16, 16, 4, 16), Padding = new Thickness(12, 9, 12, 10), Child = content
         };
         grid.Children.Add(card);
+        if (live) return grid;
         var footer = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 2, 4, 0) };
         footer.Children.Add(new TextBlock { Text = message.Time.ToLocalTime().ToString("HH:mm"), FontSize = 11, Foreground = Theme.Brush("Muted"), VerticalAlignment = VerticalAlignment.Center });
         var copyLabel = new TextBlock { Text = "העתקה", VerticalAlignment = VerticalAlignment.Center };

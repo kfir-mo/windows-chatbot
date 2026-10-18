@@ -92,6 +92,8 @@ public sealed class DocumentIndex : IDocumentSearch
     private Snapshot snapshot;
     private readonly string cacheName;
     public IndexStatistics Statistics { get; private set; } = new(0, 0, 0, 0, 0);
+    /// <summary>The documents in the index now (full paths).</summary>
+    public IReadOnlyCollection<string> Files => Volatile.Read(ref snapshot).Files.Keys;
     /// <summary>The encrypted cache file of one set of folders and chunking settings.</summary>
     public static string CacheName(Config config)
     {

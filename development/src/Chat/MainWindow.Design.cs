@@ -221,7 +221,7 @@ public partial class MainWindow
 
     // ---- ⋯ menu ----
     /// <summary>The menu under ⋯. The refresh group appears only for an assistant with document folders (never in general chat).</summary>
-    public static Border BuildOptionsMenu(string? sourcesName, bool refreshing, bool refreshEnabled, Action refresh, Action? settings, Action about, Action exit)
+    public static Border BuildOptionsMenu(string? sourcesName, bool refreshing, bool refreshEnabled, Action refresh, Action? settings, Action tour, Action exit)
     {
         var list = new StackPanel { Margin = new Thickness(6) };
         Button Item(string icon, string title, string? detail, Action action, Brush? color = null, UIElement? trailing = null)
@@ -250,9 +250,7 @@ public partial class MainWindow
             list.Children.Add(Divider(4));
         }
         if (settings != null) Item("sliders", "הגדרות AI", null, settings);
-        var beta = new Border { Background = Theme.Solid("#FEF3C7"), CornerRadius = new CornerRadius(6), Padding = new Thickness(6, 1, 6, 2), VerticalAlignment = VerticalAlignment.Center,
-            Child = new TextBlock { Text = "BETA", FontSize = 10.5, FontWeight = FontWeights.Bold, Foreground = Theme.Solid("#92400E"), FlowDirection = FlowDirection.LeftToRight } };
-        Item("info", "אודות Chaty", null, about, null, beta);
+        Item("book", "הסבר על האפליקציה", null, tour);
         list.Children.Add(Divider(4));
         Item("power", "יציאה מ־Chaty", null, exit, Theme.Brush("Danger"));
         var card = Card(list, 14);
@@ -267,12 +265,14 @@ public partial class MainWindow
         var menu = BuildOptionsMenu(HasDocuments(type) ? type!.Name : null, indexing, !indexing && running.Count == 0 && !switchingType,
             () => { CloseOverlay(); Reindex(this, new()); },
             BuildMode.Local ? async () => { CloseOverlay(false); await OpenLocalSettingsAsync(); } : null,
-            ShowAbout,
+            StartTour,
             () => Application.Current.Shutdown());
         ShowOverlay("menu", menu, false, MenuButton);
     }
 
     // ---- About ----
+    private void ShowAboutClicked(object s, RoutedEventArgs e) => ShowAbout();
+    /// <summary>About, from the "i" beside the disclaimer: the version, that it is a beta and that Chaty can be wrong.</summary>
     private void ShowAbout()
     {
         var version = typeof(MainWindow).Assembly.GetName().Version is { } v ? $"{v.Major}.{v.Minor}.{v.Build}" : "";
@@ -296,7 +296,7 @@ public partial class MainWindow
         warning.Children.Add(new Icon("warning", 18, Theme.Solid("#B45309"), 2) { VerticalAlignment = VerticalAlignment.Top, Margin = new Thickness(0, 1, 0, 0) });
         var warningText = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = 12.5, Foreground = Theme.Solid("#78350F"), Margin = new Thickness(10, 0, 0, 0), LineHeight = 19 };
         warningText.Inlines.Add(new System.Windows.Documents.Bold(new System.Windows.Documents.Run("גרסת בטא.")));
-        warningText.Inlines.Add(new System.Windows.Documents.Run(" ייתכנו תקלות ושינויים. כדאי לבדוק מידע חשוב במקור."));
+        warningText.Inlines.Add(new System.Windows.Documents.Run(" ייתכנו תקלות ושינויים. Chaty עלול לטעות, לכן כדאי לבדוק מידע חשוב במקור."));
         Grid.SetColumn(warningText, 1); warning.Children.Add(warningText);
         body.Children.Add(new Border { Background = Theme.Solid("#FFFBEB"), BorderBrush = Theme.Solid("#FCD34D"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(12), Padding = new Thickness(12, 10, 12, 10), Child = warning });
         var details = new StackPanel { Margin = new Thickness(0, 12, 0, 0) };
@@ -317,6 +317,6 @@ public partial class MainWindow
         var card = Card(new ScrollViewer { Content = body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled }, 20);
         card.Margin = new Thickness(18, 12, 18, 12); card.VerticalAlignment = VerticalAlignment.Center; card.MaxWidth = 340;
         System.Windows.Automation.AutomationProperties.SetName(card, "אודות Chaty");
-        ShowOverlay("about", card, true, MenuButton);
+        ShowOverlay("about", card, true, HelpButton);
     }
 }

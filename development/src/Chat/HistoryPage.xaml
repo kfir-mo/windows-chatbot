@@ -52,17 +52,12 @@
               <Ellipse.Style><Style TargetType="Ellipse"><Setter Property="Visibility" Value="Collapsed"/><Style.Triggers><DataTrigger Binding="{Binding State}" Value="ready"><Setter Property="Visibility" Value="Visible"/></DataTrigger></Style.Triggers></Style></Ellipse.Style>
              </Ellipse>
             </Grid>
-            <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" FontWeight="Medium"/><TextBlock Text="{Binding Meta}" Foreground="{DynamicResource Secondary}" FontSize="12" Margin="0,2,0,0" TextTrimming="CharacterEllipsis"/></StackPanel>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center"><TextBlock Text="{Binding Title}" TextTrimming="CharacterEllipsis" FontWeight="Medium"/><DockPanel Margin="0,2,0,0"><!-- The mode of the last question, with the mode switch's icon. -->
+              <local:Icon DockPanel.Dock="Left" Kind="{Binding ModeGlyph}" Visibility="{Binding ModeVisibility}" Size="12" StrokeWidth="2.2" TextElement.Foreground="{DynamicResource Secondary}" VerticalAlignment="Center" Margin="0,0,5,0" ToolTip="{Binding ModeName}"><local:Icon.RenderTransform><TranslateTransform Y="{Binding ModeShift}"/></local:Icon.RenderTransform></local:Icon>
+              <TextBlock Text="{Binding Meta}" Foreground="{DynamicResource Secondary}" FontSize="12" TextTrimming="CharacterEllipsis"/></DockPanel></StackPanel>
            </Grid>
           </Button>
           <Button Grid.Column="1" Style="{StaticResource DeleteAction}" Click="DeleteConversation" Tag="{Binding Conversation}" ToolTip="מחיקת השיחה" AutomationProperties.Name="מחיקת השיחה" Margin="0,0,6,0" VerticalAlignment="Center"><local:Icon Kind="trash" Size="18" StrokeWidth="1.8"/></Button>
-          <Border Grid.Row="1" Grid.ColumnSpan="2" Tag="confirmation" Visibility="Collapsed" Margin="8,0,8,8" Background="{DynamicResource DangerSoft}" CornerRadius="10" Padding="12,2">
-           <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-            <TextBlock Text="למחוק את השיחה?" VerticalAlignment="Center"/>
-            <Button Grid.Column="1" Content="כן" Tag="{Binding Conversation}" Click="ConfirmDelete" Style="{StaticResource SmallGhostButton}" Foreground="{DynamicResource Danger}" FontWeight="SemiBold" MinHeight="40" Padding="14,4" AutomationProperties.Name="כן, למחוק את השיחה"/>
-            <Button Grid.Column="2" Content="ביטול" Click="CancelDelete" Style="{StaticResource SmallGhostButton}" Foreground="{DynamicResource Ink}" MinHeight="40" Padding="14,4"/>
-           </Grid>
-          </Border>
          </Grid>
         </Border>
        </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
@@ -71,6 +66,15 @@
     </DataTemplate></ItemsControl.ItemTemplate></ItemsControl>
    </ScrollViewer>
   </Grid>
-  <TextBlock x:Name="Status" Grid.Row="3" TextWrapping="Wrap" Foreground="{DynamicResource Danger}" Margin="16,0,16,10"/>
+  <StackPanel Grid.Row="3">
+   <!-- A deleted conversation can be brought back for a few seconds. -->
+   <Border x:Name="UndoBar" Visibility="Collapsed" Margin="12,0,12,10" Padding="14,4,4,4" CornerRadius="12" Background="{DynamicResource Ink}" AutomationProperties.LiveSetting="Polite">
+    <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+     <TextBlock Text="השיחה נמחקה" Foreground="White" FontSize="13" VerticalAlignment="Center"/>
+     <Button x:Name="UndoButton" Grid.Column="1" Content="ביטול" Click="UndoDelete" Style="{StaticResource SmallGhostButton}" Foreground="#93C5FD" FontWeight="SemiBold" MinHeight="36" Padding="14,4" local:Ui.HoverBrush="#22FFFFFF" AutomationProperties.Name="ביטול המחיקה"/>
+    </Grid>
+   </Border>
+   <TextBlock x:Name="Status" TextWrapping="Wrap" Foreground="{DynamicResource Danger}" Margin="16,0,16,10"/>
+  </StackPanel>
  </Grid>
 </UserControl>

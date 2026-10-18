@@ -57,7 +57,7 @@ public partial class ChatTypesPage : UserControl
     private void ShowLook(TypeLook look)
     {
         var brush = Looks.Brush(look.Color);
-        AvatarFace.Background = CheckButton.Background = AddNewButton.Background = brush;
+        AvatarFace.Background = CheckButton.Background = AddButton.Background = brush;
         AvatarIcon.Kind = look.Glyph;
     }
     private void ToggleLook(object sender, RoutedEventArgs e) => LookCard.Visibility = LookCard.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
@@ -75,7 +75,6 @@ public partial class ChatTypesPage : UserControl
         if (e.Key != Key.Escape) return;
         e.Handled = true;
         if (ConfirmLayer.Visibility == Visibility.Visible) CancelDelete(this, e);
-        else if (AddFolderPanel.Visibility == Visibility.Visible) CancelAddFolder(this, e);
         else Close();
     }
     private void NameChanged(object sender, TextChangedEventArgs e) { NameHint.Visibility = TypeName.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed; ShowFeedback(""); }
@@ -83,7 +82,6 @@ public partial class ChatTypesPage : UserControl
     private void PathTyped(object sender, TextChangedEventArgs e)
     {
         FirstPathHint.Visibility = FirstPath.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-        NewPathHint.Visibility = NewPath.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         ShowPathFeedback("");
     }
     private void ShowFeedback(string text) { if (Feedback == null) return; Feedback.Text = text; Feedback.Visibility = text.Length > 0 ? Visibility.Visible : Visibility.Collapsed; }
@@ -102,36 +100,40 @@ public partial class ChatTypesPage : UserControl
         return dialog.ShowDialog(Window.GetWindow(this)) == true ? dialog.FileName : null;
     }
     private void BrowseFileFirst(object sender, RoutedEventArgs e) { if (PickFile() is { } path) _ = AddFolderAsync(path); }
+    /// <summary>Files dragged from Explorer: the overlay shows while they are over the sources. Preview events, so the path
+    /// fields (which would take the drop as text) never see it.</summary>
+    private void SourcesDragOver(object sender, DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
+        e.Effects = DragDropEffects.Copy; e.Handled = true;
+        DropOverlay.Visibility = Visibility.Visible;
+    }
+    private void SourcesDragLeave(object sender, DragEventArgs e)
+    {
+        // Moving between the controls inside raises a leave too: only leaving the whole area hides the overlay.
+        var at = e.GetPosition(SourcesArea);
+        if (at.X > 0 && at.Y > 0 && at.X < SourcesArea.ActualWidth && at.Y < SourcesArea.ActualHeight) return;
+        DropOverlay.Visibility = Visibility.Collapsed;
+    }
+    /// <summary>Each dropped folder or document is added like a typed path (checked, counted, duplicates refused).</summary>
+    private async void DropSources(object sender, DragEventArgs e)
+    {
+        DropOverlay.Visibility = Visibility.Collapsed;
+        if (e.Data.GetData(DataFormats.FileDrop) is not string[] paths) return;
+        e.Handled = true;
+        foreach (var path in paths) await AddFolderAsync(path);
+    }
     // Choosing from the computer adds at once; only a typed path waits for "הוספה".
-    private void BrowseFileNew(object sender, RoutedEventArgs e) { if (PickFile() is { } path) { NewPath.Text = path; _ = AddTypedAsync(NewPath); } }
     private void BrowseFirst(object sender, RoutedEventArgs e) { if (PickFolder() is { } path) _ = AddFolderAsync(path); }
-    private void BrowseNew(object sender, RoutedEventArgs e) { if (PickFolder() is { } path) { NewPath.Text = path; _ = AddTypedAsync(NewPath); } }
     private static bool LooksLikeFile(string path) => DocumentIndex.Extensions.Contains(Path.GetExtension(path).ToLowerInvariant());
     private void AddFirst(object sender, RoutedEventArgs e) => _ = AddTypedAsync(FirstPath);
-    private void AddNew(object sender, RoutedEventArgs e) => _ = AddTypedAsync(NewPath);
     private void FirstPathKey(object sender, KeyEventArgs e) { if (e.Key == Key.Enter) { e.Handled = true; _ = AddTypedAsync(FirstPath); } }
-    private void NewPathKey(object sender, KeyEventArgs e) { if (e.Key == Key.Enter) { e.Handled = true; _ = AddTypedAsync(NewPath); } }
-    private void ShowAddFolder(object sender, RoutedEventArgs e)
-    {
-        AddFolderButton.Visibility = Visibility.Collapsed; AddFolderPanel.Visibility = Visibility.Visible;
-        NewPath.Clear(); ShowPathFeedback("");
-        Dispatcher.BeginInvoke(() => { NewPath.Focus(); AddFolderPanel.BringIntoView(); }, System.Windows.Threading.DispatcherPriority.Input);
-    }
-    private void CancelAddFolder(object sender, RoutedEventArgs e)
-    {
-        AddFolderPanel.Visibility = Visibility.Collapsed; AddFolderButton.Visibility = Visibility.Visible;
-        NewPath.Clear(); ShowPathFeedback(""); AddFolderButton.Focus();
-    }
     private async Task AddTypedAsync(TextBox input)
     {
         if (string.IsNullOrWhiteSpace(input.Text)) { ShowPathFeedback("הזינו נתיב לתיקייה או לקובץ, או בחרו מהמחשב."); input.Focus(); return; }
         if (await AddFolderAsync(input.Text))
-        {
             input.Clear();
-            if (input == NewPath) { AddFolderPanel.Visibility = Visibility.Collapsed; AddFolderButton.Visibility = Visibility.Visible; AddFolderButton.Focus(); }
-            else AddFolderButton.Focus();
-        }
-        else input.Focus();
+        input.Focus();
     }
     /// <summary>Adds a folder or a single document (any number of them) and scans it for supported documents. False when the path is invalid or already listed.</summary>
     public async Task<bool> AddFolderAsync(string path)
@@ -174,7 +176,7 @@ public partial class ChatTypesPage : UserControl
             row.Scan.Cancel();
             var position = rows.IndexOf(row);
             rows.Remove(row); PathRows.Children.Remove(frame); UpdateFolders(); ShowFeedback("");
-            // Keep the keyboard in the list: the next row's remove button, or the add button.
+            // Keep the keyboard in the list: the next row's remove button, or the path field.
             var next = rows.Count == 0 ? null : rows[Math.Min(position, rows.Count - 1)];
             if (next != null) ((Grid)next.Frame.Child).Children.OfType<Button>().Last().Focus(); else if (rows.Count == 0) FirstPath.Focus();
         };
@@ -185,7 +187,6 @@ public partial class ChatTypesPage : UserControl
     {
         for (int i = 0; i < rows.Count; i++) rows[i].Frame.BorderThickness = new Thickness(0, i == 0 ? 0 : 1, 0, 0);
         FolderCard.Visibility = rows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        EmptyFolders.Visibility = rows.Count > 0 ? Visibility.Collapsed : Visibility.Visible;
     }
     /// <summary>Long paths keep their start and their last folders: "D:\…\samples\HR" (the full path is in the tooltip).</summary>
     private static string ShortPath(string path)
@@ -243,7 +244,9 @@ public partial class ChatTypesPage : UserControl
         }
         finally
         {
-            if (!row.Scan.IsCancellationRequested) { ((RotateTransform)row.Spinner.RenderTransform).BeginAnimation(RotateTransform.AngleProperty, null); row.Spinner.Visibility = Visibility.Collapsed; }
+            // Also when cancelled (the row removed, the form closed): a forever animation would keep the app busy.
+            ((RotateTransform)row.Spinner.RenderTransform).BeginAnimation(RotateTransform.AngleProperty, null);
+            if (!row.Scan.IsCancellationRequested) { row.Spinner.Visibility = Visibility.Collapsed; }
         }
     }
 
@@ -257,7 +260,7 @@ public partial class ChatTypesPage : UserControl
         try
         {
             // A path typed in a box but not yet added counts too.
-            var typed = new[] { FirstPath.Text, AddFolderPanel.Visibility == Visibility.Visible ? NewPath.Text : "" }.Where(p => !string.IsNullOrWhiteSpace(p));
+            var typed = new[] { FirstPath.Text }.Where(p => !string.IsNullOrWhiteSpace(p));
             var paths = ChatType.NormalizePaths(rows.Select(r => r.Path).Concat(typed));
             if (SaveRequested != null) await SaveRequested(new ChatType { Id = editingId, Name = TypeName.Text.Trim(), Paths = paths, Prompt = CustomPrompt.Text.Trim() });
             Close();

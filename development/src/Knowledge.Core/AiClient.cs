@@ -5,6 +5,9 @@ namespace Knowledge.Core;
 public interface IAiClient
 {
     Task<string> CompleteAsync(string instruction, string input, CancellationToken cancellation);
+    /// <summary>Like <see cref="CompleteAsync"/>, reporting the text written so far (the whole of it, each time) while it
+    /// arrives. A client that cannot stream answers at once.</summary>
+    Task<string> StreamAsync(string instruction, string input, Action<string> onText, CancellationToken cancellation) => CompleteAsync(instruction, input, cancellation);
 }
 public sealed class AiClient : IAiClient, IDisposable
 {
@@ -30,14 +33,70 @@ public sealed class AiClient : IAiClient, IDisposable
     public Task<string> TestConnectionAsync(string? key, CancellationToken cancellation) => CompleteCoreAsync("Reply with exactly OK.", "Connection test.", cancellation, key);
     private async Task<string> CompleteCoreAsync(string instruction, string input, CancellationToken cancellation, string? keyOverride)
     {
-        using var request = new HttpRequestMessage(HttpMethod.Post, config.Ai.Endpoint);
+        using var request = Request(instruction, input, keyOverride, false);
+        // No request budget of its own: calls go out until the server answers 429, and that answer is shown as is.
+        Interlocked.Increment(ref attemptedRequests);
+        using var response = await http.SendAsync(request, cancellation);
+        return await ReadAsync(response, cancellation);
+    }
+    /// <summary>The answer as it is written ("stream": server-sent events). A server that ignores "stream" answers with
+    /// ordinary JSON, which is read as usual. Thinking (a leading &lt;think&gt; block, reasoning deltas) is never reported.</summary>
+    public async Task<string> StreamAsync(string instruction, string input, Action<string> onText, CancellationToken cancellation)
+    {
+        if (NoStreaming.ContainsKey(config.Ai.Endpoint)) return await CompleteAsync(instruction, input, cancellation);
+        using var request = Request(instruction, input, null, true);
+        Interlocked.Increment(ref attemptedRequests);
+        using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellation);
+        // A gateway that does not take "stream" rejects the request: ask again without it, and never stream to it again in
+        // this run. (A real error, such as a wrong model, fails the same way on the second try and is reported from there.)
+        if ((int)response.StatusCode is 400 or 404 or 405 or 415 or 422 or 501)
+        {
+            NoStreaming[config.Ai.Endpoint] = true;
+            return await CompleteAsync(instruction, input, cancellation);
+        }
+        if (!response.IsSuccessStatusCode || response.Content.Headers.ContentType?.MediaType != "text/event-stream") return await ReadAsync(response, cancellation);
+        using var reader = new StreamReader(await response.Content.ReadAsStreamAsync(cancellation));
+        var text = new System.Text.StringBuilder();
+        string? line, finish = null;
+        while ((line = await reader.ReadLineAsync(cancellation)) != null)
+        {
+            if (!line.StartsWith("data:", StringComparison.Ordinal)) continue;
+            var data = line[5..].Trim();
+            if (data == "[DONE]") break;
+            using var json = JsonDocument.Parse(data);
+            var root = json.RootElement;
+            if (root.ValueKind != JsonValueKind.Object) continue;
+            if (root.TryGetProperty("error", out var e) && e.ValueKind == JsonValueKind.Object) throw Failure(200, e, null);
+            string? piece = null;
+            if (root.TryGetProperty("choices", out var choices) && choices.ValueKind == JsonValueKind.Array && choices.GetArrayLength() > 0)
+            {
+                var choice = choices[0];
+                if (choice.TryGetProperty("delta", out var delta) && delta.ValueKind == JsonValueKind.Object && delta.TryGetProperty("content", out var c) && c.ValueKind == JsonValueKind.String) piece = c.GetString();
+                if (choice.TryGetProperty("finish_reason", out var f) && f.ValueKind == JsonValueKind.String) finish = f.GetString();
+            }
+            else if (root.TryGetProperty("type", out var type) && type.ValueKind == JsonValueKind.String && type.GetString() == "response.output_text.delta" && root.TryGetProperty("delta", out var d) && d.ValueKind == JsonValueKind.String) piece = d.GetString();
+            if (string.IsNullOrEmpty(piece)) continue;
+            text.Append(piece);
+            if (text.Length > 1024 * 1024) throw new InvalidDataException("The streamed answer is too long.");
+            var visible = WithoutThinking(text.ToString());
+            if (visible.Length > 0 && !"<think>".StartsWith(visible.TrimStart(), StringComparison.Ordinal)) onText(visible);
+        }
+        var answer = WithoutThinking(text.ToString());
+        if (string.IsNullOrWhiteSpace(answer)) throw Empty(finish);
+        Interlocked.Increment(ref successfulRequests);
+        return answer;
+    }
+    /// <summary>Endpoints that refused a streamed request; they get plain requests from then on.</summary>
+    private static readonly System.Collections.Concurrent.ConcurrentDictionary<string, bool> NoStreaming = new(StringComparer.OrdinalIgnoreCase);
+    private HttpRequestMessage Request(string instruction, string input, string? keyOverride, bool stream)
+    {
         var a = config.Ai;
         if (!string.IsNullOrWhiteSpace(a.SystemPrompt)) instruction = a.SystemPrompt + "\n\n" + instruction;
+        var request = new HttpRequestMessage(HttpMethod.Post, a.Endpoint);
         if (a.Authentication is "bearer" or "header")
         {
             var key = keyOverride ?? AiCredentials.Resolve(a);
-            if (string.IsNullOrWhiteSpace(key))
-                throw new InvalidOperationException("לא הוגדר מפתח API. הזינו מפתח בהגדרות ה־AI.");
+            if (string.IsNullOrWhiteSpace(key)) { request.Dispose(); throw new MissingKeyException(); }
             if (a.Authentication == "bearer")
                 request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", key);
             else
@@ -46,14 +105,17 @@ public sealed class AiClient : IAiClient, IDisposable
         var body = new Dictionary<string, object> { ["model"] = a.Model };
         if (a.Format == "responses") { body["instructions"] = instruction; body["input"] = input; }
         else body["messages"] = new[] { new { role = "system", content = instruction }, new { role = "user", content = input } };
+        if (stream) body["stream"] = true;
         if (a.SendStoreFalse) body["store"] = false;
         var limitField = a.MaxTokensField is "" ? (a.Format == "responses" ? "max_output_tokens" : "max_completion_tokens") : a.MaxTokensField;
         if (limitField != "none") body[limitField] = a.MaxOutputTokens;
         if (a.Temperature.HasValue) body["temperature"] = a.Temperature.Value;
         request.Content = JsonContent.Create(body);
-        // No request budget of its own: calls go out until the server answers 429, and that answer is shown as is.
-        Interlocked.Increment(ref attemptedRequests);
-        using var response = await http.SendAsync(request, cancellation);
+        return request;
+    }
+    private async Task<string> ReadAsync(HttpResponseMessage response, CancellationToken cancellation)
+    {
+        var a = config.Ai;
         var text = await response.Content.ReadAsStringAsync(cancellation);
         JsonDocument? parsed = null;
         try { parsed = JsonDocument.Parse(text); } catch (JsonException) when (!response.IsSuccessStatusCode) { }
@@ -85,10 +147,15 @@ public sealed class AiClient : IAiClient, IDisposable
             JsonValueKind.Array => string.Concat(c.EnumerateArray().Where(p => p.TryGetProperty("text", out var t) && t.ValueKind == JsonValueKind.String).Select(p => p.GetProperty("text").GetString())),
             _ => null
         } : null;
-        content = System.Text.RegularExpressions.Regex.Replace(content ?? "", @"^\s*<think>.*?(</think>\s*|$)", "", System.Text.RegularExpressions.RegexOptions.Singleline);
+        content = WithoutThinking(content ?? "");
         if (!string.IsNullOrWhiteSpace(content)) return content;
-        var reason = choice.TryGetProperty("finish_reason", out var f) && f.ValueKind == JsonValueKind.String ? f.GetString() : null;
-        throw new InvalidOperationException(reason == "length"
+        throw Empty(choice.TryGetProperty("finish_reason", out var f) && f.ValueKind == JsonValueKind.String ? f.GetString() : null);
+    }
+    private static string WithoutThinking(string content) => System.Text.RegularExpressions.Regex.Replace(content, @"^\s*<think>.*?(</think>\s*|$)", "", System.Text.RegularExpressions.RegexOptions.Singleline);
+    /// <summary>No visible answer: the thinking used up max_tokens ("length"), or the model wrote nothing.</summary>
+    private static InvalidOperationException Empty(string? reason)
+    {
+        return new InvalidOperationException(reason == "length"
             ? "המודל הגיע למגבלת אורך התשובה (maxOutputTokens) עוד לפני שכתב תשובה, כנראה בזמן החשיבה. נסו שאלה ממוקדת יותר, מודל בלי חשיבה, או maxOutputTokens גבוה יותר בהגדרת ה־JSON."
             : "המודל החזיר תשובה ריקה. נסו שוב.");
     }

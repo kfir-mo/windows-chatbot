@@ -57,6 +57,62 @@ public sealed class ApiTests
         Assert.Equal("שלום", await ai.CompleteAsync("system", "user", default));
     }
     [Fact]
+    public async Task StreamReportsTheTextSoFarWithoutThinking()
+    {
+        var config = new Config();
+        config.Ai.Authentication = "none";
+        var events = "data: {\"choices\":[{\"delta\":{\"content\":\"<think>plan\"}}]}\n\n" +
+            "data: {\"choices\":[{\"delta\":{\"content\":\"</think>שלום\"}}]}\n\n" +
+            "data: {\"choices\":[{\"delta\":{\"reasoning_content\":\"x\"}}]}\n\n" +
+            "data: {\"choices\":[{\"delta\":{\"content\":\" עולם\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n";
+        var handler = new StubHandler(async request =>
+        {
+            using var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+            Assert.True(payload.RootElement.GetProperty("stream").GetBoolean());
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(events, System.Text.Encoding.UTF8, "text/event-stream") };
+        });
+        using var ai = new AiClient(config, handler);
+        var seen = new List<string>();
+        Assert.Equal("שלום עולם", await ai.StreamAsync("system", "user", seen.Add, default));
+        Assert.Equal(["שלום", "שלום עולם"], seen);
+    }
+    [Fact]
+    public async Task AGatewayThatRefusesStreamingIsAskedAgainWithoutIt()
+    {
+        var config = new Config();
+        config.Ai.Authentication = "none";
+        config.Ai.Endpoint = "https://no-stream.example/v1/chat/completions";
+        config.Ai.AllowedHosts = ["no-stream.example"];
+        var streamed = 0; var plain = 0;
+        var handler = new StubHandler(async request =>
+        {
+            using var payload = JsonDocument.Parse(await request.Content!.ReadAsStringAsync());
+            if (payload.RootElement.TryGetProperty("stream", out _)) { streamed++; return new HttpResponseMessage(HttpStatusCode.BadRequest) { Content = new StringContent("{\"error\":{\"message\":\"unknown field stream\"}}") }; }
+            plain++;
+            return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"choices\":[{\"message\":{\"content\":\"שלום\"}}]}") };
+        });
+        using var ai = new AiClient(config, handler);
+        Assert.Equal("שלום", await ai.StreamAsync("system", "user", _ => { }, default));
+        Assert.Equal("שלום", await ai.StreamAsync("system", "user", _ => { }, default));
+        Assert.Equal(1, streamed); Assert.Equal(2, plain);
+    }
+    [Fact]
+    public async Task StreamFallsBackToAPlainAnswer()
+    {
+        var config = new Config();
+        config.Ai.Authentication = "none";
+        var handler = new StubHandler(_ => Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent("{\"choices\":[{\"message\":{\"content\":\"שלום\"}}]}") }));
+        using var ai = new AiClient(config, handler);
+        Assert.Equal("שלום", await ai.StreamAsync("system", "user", _ => { }, default));
+    }
+    [Theory]
+    [InlineData("", "")]
+    [InlineData("{\"answer\":\"של", "של")]
+    [InlineData("{\"answer\": \"שורה\\nשנייה \\\"מצוטט\\\" \\u05D0", "שורה\nשנייה \"מצוטט\" א")]
+    [InlineData("{\"answer\":\"גמור\",\"citations\":[1]}", "גמור")]
+    [InlineData("{\"answer\":\"חצי \\", "חצי ")]
+    public void PartialAnswerReadsTheAnswerFieldAsItIsWritten(string raw, string expected) => Assert.Equal(expected, ChatEngine.PartialAnswer(raw));
+    [Fact]
     public async Task InternalServerOptionsShapeTheRequest()
     {
         var config = new Config();
@@ -81,7 +137,7 @@ public sealed class ApiTests
         var config = new Config();
         config.Ai.SecretEnvironmentVariable = "CHAT_TEST_MISSING_" + Guid.NewGuid();
         using var ai = new AiClient(config, new StubHandler(_ => throw new Exception("Network must not be called")));
-        await Assert.ThrowsAsync<InvalidOperationException>(() => ai.CompleteAsync("system", "user", default));
+        await Assert.ThrowsAsync<MissingKeyException>(() => ai.CompleteAsync("system", "user", default));
     }
 
     [Fact]

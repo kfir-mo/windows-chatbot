@@ -176,51 +176,6 @@ public sealed class AnswerFlowTests
         Assert.Contains("deep mode", ai.Instructions[2]);
     }
     [Fact]
-    public async Task DeepAndMaximumAskFirstWhenTheDocumentsFoundCoverSeveralTopics()
-    {
-        var path = Path.GetTempFileName();
-        try
-        {
-            const string ask = """{"questions":[{"question":"באיזו מערכת?","options":["Outlook","Teams","VPN","Outlook","Word"]},{"question":"  ","options":[]}]}""";
-            // Deep: a quick local search, then one AI call that sees what was found and asks; nothing else runs.
-            var ai = new QueueAi(ask);
-            var search = new Search(path);
-            var engine = new ChatEngine(new(), ai, search) { Mode = AnswerMode.Deep, MayClarify = true };
-            var result = await engine.AskAsync("יש לי בעיה במחשב", new(), null, default);
-            Assert.Equal("", result.Text);
-            var question = Assert.Single(engine.Clarifications);
-            Assert.Equal("באיזו מערכת?", question.Question); Assert.Equal(4, question.Options.Count);
-            Assert.Single(ai.Instructions); Assert.Contains("Call 4321", ai.Inputs[0]);
-            Assert.Equal(["יש לי בעיה במחשב"], search.Queries);
-
-            // A specific request: the same call says no questions and the deep answer follows.
-            const string answer = """{"answer":"Reset it","citations":[1]}""";
-            ai = new QueueAi("""{"questions":[]}""", """{"action":"search","query":"Outlook problem"}""", answer, answer);
-            engine = new ChatEngine(new(), ai, new Search(path)) { Mode = AnswerMode.Deep, MayClarify = true };
-            Assert.Equal("Reset it", (await engine.AskAsync("Outlook לא נפתח", new(), null, default)).Text);
-            Assert.Empty(engine.Clarifications); Assert.Equal(4, ai.Instructions.Count);
-
-            // The second try carries the answers and may not ask; normal mode never asks.
-            ai = new QueueAi("""{"action":"search","query":"Outlook problem"}""", answer, answer);
-            await new ChatEngine(new(), ai, new Search(path)) { Mode = AnswerMode.Deep }.AskAsync("יש לי בעיה במחשב\nבאיזו מערכת? Outlook", new(), null, default);
-            Assert.Equal(3, ai.Instructions.Count);
-            ai = new QueueAi("""{"action":"search","query":"computer problem"}""", answer, answer);
-            await new ChatEngine(new(), ai, new Search(path)) { MayClarify = true }.AskAsync("יש לי בעיה במחשב", new(), null, default);
-            Assert.Equal(3, ai.Instructions.Count);
-
-            // Maximum asks the same way; a greeting never costs the extra call.
-            ai = new QueueAi(ask);
-            engine = new ChatEngine(new(), ai, new Search(path)) { Mode = AnswerMode.Maximum, MayClarify = true };
-            await engine.AskAsync("זה לא עובד", new(), null, default);
-            Assert.Single(engine.Clarifications); Assert.Single(ai.Instructions);
-            ai = new QueueAi("""{"answer":"היי","citations":[]}""");
-            engine = new ChatEngine(new(), ai, new Search(path)) { Mode = AnswerMode.Deep, MayClarify = true };
-            await engine.AskAsync("שלום", new(), null, default);
-            Assert.Empty(engine.Clarifications); Assert.Empty(ai.Instructions);
-        }
-        finally { File.Delete(path); }
-    }
-    [Fact]
     public async Task ConversationTitleIsAShortSummaryNotTheRequest()
     {
         var ai = new QueueAi("\"כתיבת קוד בפייתון.\"\nextra line");
@@ -245,6 +200,30 @@ public sealed class AnswerFlowTests
         public List<string> Instructions = [];
         public Task<string> CompleteAsync(string instruction, string input, CancellationToken cancellation)
         { Inputs.Add(input); Instructions.Add(instruction); return Task.FromResult(queue.Dequeue()); }
+        /// <summary>The calls (1-based) that were streamed.</summary>
+        public List<int> Streamed = [];
+        public async Task<string> StreamAsync(string instruction, string input, Action<string> onText, CancellationToken cancellation)
+        { var result = await CompleteAsync(instruction, input, cancellation); Streamed.Add(Inputs.Count); onText(result); return result; }
+    }
+    [Fact]
+    public async Task OnlyTheFinalAnswerIsStreamedNotTheDraftItReviews()
+    {
+        var path = Path.GetTempFileName();
+        try
+        {
+            var ai = new QueueAi("""{"action":"reply","reply":"generic"}""", """{"action":"reply","reply":"still generic"}""",
+                """{"answer":"draft","citations":[1]}""", """{"answer":"Call 4321","citations":[1]}""");
+            var seen = new List<string>();
+            var answer = await new ChatEngine(new(), ai, new Search(path)) { Partial = seen.Add }.AskAsync("Call 4321", new(), null, default);
+            Assert.Equal("Call 4321", answer.Text);
+            Assert.Equal([4], ai.Streamed);
+            Assert.Equal(["Call 4321"], seen);
+            var general = new QueueAi("שלום");
+            var chat = new List<string>();
+            await new ChatEngine(new() { GeneralChat = true }, general, new Search(path)) { Mode = AnswerMode.Deep, Partial = chat.Add }.AskAsync("hi", new(), null, default);
+            Assert.Equal(["שלום"], chat);
+        }
+        finally { File.Delete(path); }
     }
     /// <summary>Finds a passage when the query contains its word, like the keyword index.</summary>
     private sealed class WordSearch(params (string Word, Passage Passage)[] entries) : IDocumentSearch

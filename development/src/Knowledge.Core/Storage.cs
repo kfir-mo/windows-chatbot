@@ -59,6 +59,8 @@ public record ChatMessage(string Role, string Text, DateTimeOffset Time, List<So
 {
     /// <summary>A document the user attached to this message (general chat only).</summary>
     public Attachment? File { get; init; }
+    /// <summary>The answer mode a user message was sent with (<see cref="AnswerMode"/> name); empty in older conversations.</summary>
+    public string Mode { get; init; } = "";
 }
 public sealed class Conversation
 {

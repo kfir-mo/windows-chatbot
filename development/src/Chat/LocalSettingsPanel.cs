@@ -11,6 +11,10 @@ namespace Chat;
 public sealed class LocalSettingsPanel : UserControl
 {
     public event Action<Config?>? Completed;
+    /// <summary>Closes without saving (like "ביטול").</summary>
+    public void Cancel() => Completed?.Invoke(null);
+    /// <summary>The API key part of the screen.</summary>
+    public FrameworkElement? KeyArea { get; private set; }
     public LocalSettingsPanel(Config current)
     {
         FlowDirection = FlowDirection.RightToLeft; FontFamily = (FontFamily)FindResource("UiFont");
@@ -41,7 +45,7 @@ public sealed class LocalSettingsPanel : UserControl
         TextBlock Hint(string text) => new() { Text = text, FontSize = 12.5, Foreground = Theme.Brush("Secondary"), TextWrapping = TextWrapping.Wrap, Margin = new Thickness(2, 6, 0, 0) };
 
         // config.json: when it is missing, a short card with the path and a button to its folder; when it exists, only a
-        // small "edit" link next to the model label (opens it in Notepad; the reload button applies the changes).
+        // small "edit" link next to the model label (opens its folder with the file selected; the reload button applies the changes).
         void Run(string exe, string argument) { try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe) { ArgumentList = { argument }, UseShellExecute = false }); } catch { } }
         var missing = new StackPanel();
         var missingCard = new Border { Background = Theme.Brush("Surface"), BorderBrush = Theme.Brush("Line"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 12, 14, 12), Margin = new Thickness(0, 0, 0, 20), Child = missing };
@@ -63,8 +67,8 @@ public sealed class LocalSettingsPanel : UserControl
         editContent.Children.Add(new Icon("file", 14, null, 2) { VerticalAlignment = VerticalAlignment.Center });
         editContent.Children.Add(new TextBlock { Text = "עריכת config.json", Margin = new Thickness(6, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center });
         editFile.Content = editContent;
-        System.Windows.Automation.AutomationProperties.SetName(editFile, "עריכת קובץ ההגדרות");
-        editFile.Click += (_, _) => Run("notepad.exe", AiConfigFile.Path);
+        System.Windows.Automation.AutomationProperties.SetName(editFile, "הצגת קובץ ההגדרות בתיקייה");
+        editFile.Click += (_, _) => { try { System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo("explorer.exe", "/select,\"" + AiConfigFile.Path + "\"") { UseShellExecute = false }); } catch { } };
         modelLabel.Children.Add(editFile);
         panel.Children.Add(modelLabel);
         var model = new ComboBox { Style = Ui.Style("ModelPicker"), FlowDirection = FlowDirection.LeftToRight, FontFamily = (FontFamily)FindResource("MonoFont"), FontSize = 13.5 };
@@ -87,7 +91,7 @@ public sealed class LocalSettingsPanel : UserControl
         ShowModels(current.Ai.Model);
 
         // Internal servers without a key (Authentication "none" or "windows") hide the whole key section.
-        var keySection = new StackPanel { Margin = new Thickness(0, 22, 0, 0) }; panel.Children.Add(keySection);
+        var keySection = new StackPanel { Margin = new Thickness(0, 22, 0, 0) }; panel.Children.Add(keySection); KeyArea = keySection;
         keySection.Children.Add(Label("מפתח API"));
         var card = new StackPanel();
         keySection.Children.Add(new Border { Background = Theme.Brush("Surface"), BorderBrush = Theme.Brush("Line"), BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(14), Padding = new Thickness(14, 12, 14, 14), Child = card });
