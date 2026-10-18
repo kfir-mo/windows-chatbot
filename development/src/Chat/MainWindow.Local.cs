@@ -25,8 +25,15 @@ public partial class MainWindow
         // Every start opens a new, empty general chat; earlier conversations are in the history.
         await ActivateTypeAsync(ChatType.GeneralId, false);
         RemoveUnusedIndexes();
-        // First run, or a PC that got only Chaty.exe: open the AI settings, where the endpoint JSON is pasted.
-        if (Storage.Load<Config>("local-settings.bin") == null || LocalAiCatalog.Load().Models.Count == 0) await OpenLocalSettingsAsync();
+        // The first start shows the tour, which ends by opening the AI settings when there is no API key yet.
+        // Later, a PC with no settings or no models (no config.json) opens the AI settings directly.
+        if (Storage.Load<bool?>("tour-shown.bin") != true)
+        {
+            try { Storage.Save("tour-shown.bin", true); } catch { }
+            UpdateLayout();
+            StartTour(true);
+        }
+        else if (Storage.Load<Config>("local-settings.bin") == null || LocalAiCatalog.Load().Models.Count == 0) await OpenLocalSettingsAsync();
         MemoryTrim.Schedule(Dispatcher, IdleTrimSeconds);
     }
     private async Task OpenLocalSettingsAsync()

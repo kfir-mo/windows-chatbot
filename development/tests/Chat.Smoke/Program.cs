@@ -151,19 +151,26 @@ internal static class Program
    if (((TextBlock)main.FindName("NormalLabel")).Margin.Left != 0 || ((TextBlock)main.FindName("FastLabel")).Margin.Left == 0) throw new Exception("Only the chosen answer mode shows its name.");
    Console.WriteLine("PASS: answer mode switch (fast, normal, deep)");
 
-   // The ⋯ menu's "הסבר על האפליקציה" starts the tour: step by step, "הבא" to the end, then it closes.
+   // The tour (here as on the first start, with no API key): step by step, "הבא" to the end, ending on the key; then it
+   // closes and opens the AI settings.
    ((FrameworkElement)main.FindName("Panel")).Visibility = Visibility.Visible; ((FrameworkElement)main.FindName("LoginOverlay")).Visibility = Visibility.Collapsed;
    Layout((FrameworkElement)main.Content, 400, 680);
-   typeof(MainWindow).GetMethod("StartTour", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.Invoke(main, null);
+   // The settings the app starts with (no API key in the temp profile), so the AI settings screen can open.
+   typeof(MainWindow).GetField("config", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.SetValue(main, new Config());
+   typeof(MainWindow).GetMethod("StartTour", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance, [typeof(bool)])!.Invoke(main, [true]);
    var tourLayer = ((Grid)main.FindName("PanelRoot")).Children.OfType<Grid>().Last();
    string TourStep() { Layout((FrameworkElement)main.Content, 400, 680); return Descendants(tourLayer).OfType<Border>().Select(Name).First(n => n.StartsWith("סיור באפליקציה")); }
    if (tourLayer.Visibility != Visibility.Visible || !TourStep().Contains("שלב 1 מתוך")) throw new Exception("The tour must start at its first step.");
+   var lastStep = "";
    for (var steps = 0; tourLayer.Visibility == Visibility.Visible; steps++)
    {
     if (steps > 12) throw new Exception("The tour does not end.");
-    TourStep(); Click(Descendants(tourLayer).OfType<Button>().Last(b => b.Content is "הבא" or "סיום"));
+    lastStep = TourStep(); Click(Descendants(tourLayer).OfType<Button>().Last(b => b.Content is "הבא" or "סיום"));
    }
-   Console.WriteLine("PASS: tour of the app (from the first step to the end)");
+   if (!lastStep.Contains("מפתח API")) throw new Exception("The first-start tour must end on the API key.");
+   if (((ContentControl)main.FindName("ScreenHost")).Content is not LocalSettingsPanel keyScreen) throw new Exception("The first-start tour must open the AI settings at the end.");
+   keyScreen.Cancel(); Layout((FrameworkElement)main.Content, 400, 680);
+   Console.WriteLine("PASS: tour of the app (first start: from the first step to the API key, then the AI settings)");
    Click((Button)main.FindName("HelpButton"));
    if (((ContentControl)main.FindName("OverlayHost")).Content is not FrameworkElement about || Name(about) != "אודות Chaty") throw new Exception("The \"i\" must open About.");
    typeof(MainWindow).GetMethod("CloseOverlay", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)!.Invoke(main, [true]);

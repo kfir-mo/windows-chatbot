@@ -6,9 +6,10 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using Knowledge.Core;
 
 namespace Chat;
-/// <summary>A short tour of what is not obvious, from the ⋯ menu ("הסבר על האפליקציה"). Each step can open a part of the app
+/// <summary>A short tour of what is not obvious, on the first start and from the ⋯ menu ("הסבר על האפליקציה"). Each step can open a part of the app
 /// (the assistant switcher, the new assistant form, the menu), dims the panel except what it explains (outlined) and shows a
 /// short card beside it with "הבא" / "הקודם" and a close button. Moving on closes what the step opened.</summary>
 public partial class MainWindow
@@ -19,7 +20,10 @@ public partial class MainWindow
     private Grid? tourLayer;
     /// <summary>The new assistant form the tour opened (never saved), closed when the tour moves on.</summary>
     private ChatTypesPage? tourForm;
-    private void StartTour()
+    /// <summary>The first start without an API key: the tour ends on the key and then opens the AI settings to type it.</summary>
+    private bool tourOpensSettings;
+    private void StartTour() => StartTour(false);
+    private void StartTour(bool firstRun)
     {
         CloseOverlay(false); CloseSources();
         if (HistoryView.Visibility == Visibility.Visible || ScreenLayer.Visibility == Visibility.Visible) ShowPage("chat");
@@ -27,7 +31,8 @@ public partial class MainWindow
         var free = running.Count == 0 && personalAllowed;
         FrameworkElement? Popover() => OverlayHost.Content as FrameworkElement;
         FrameworkElement? InForm(string name) => tourForm?.FindName(name) as FrameworkElement;
-        tour = [new(() => null, "סיור קצר", "כמה דברים שכדאי להכיר.")];
+        tourOpensSettings = firstRun && BuildMode.Local && (config == null || string.IsNullOrEmpty(AiCredentials.Resolve(config.Ai)));
+        tour = [new(() => null, firstRun ? "ברוכים הבאים ל־Chaty" : "סיור קצר", tourOpensSettings ? "כמה דברים שכדאי להכיר, ובסוף נגדיר את מפתח ה־API." : "כמה דברים שכדאי להכיר.")];
         if (free)
         {
             tour.Add(new(Popover, "עוזרים", "כאן עוברים בין הצ׳אט הכללי לעוזרים שלכם.", () => PickChatType(this, new())));
@@ -42,7 +47,8 @@ public partial class MainWindow
                 "הגדרות AI", "נמצאות בתפריט.", () => ShowOptions(this, new())));
             tour.Add(new(() => tourSettings?.KeyArea is { } key && Showing(key) ? key : tourSettings, "הגדרות AI", "כאן בוחרים מודל ומדביקים את מפתח ה־API.", OpenTourSettings));
         }
-        tour.Add(new(() => null, "זהו", "את השאלה האחרונה אפשר לערוך עם העיפרון שמתחתיה."));
+        tour.Add(tourOpensSettings ? new(() => null, "מפתח API", "בסיום ייפתחו הגדרות AI. הדביקו שם את מפתח ה־API האישי שלכם ושמרו.")
+            : new(() => null, "זהו", "את השאלה האחרונה אפשר לערוך עם העיפרון שמתחתיה."));
         tourIndex = 0;
         if (tourLayer == null)
         {
@@ -89,6 +95,7 @@ public partial class MainWindow
         tourLayer.Visibility = Visibility.Collapsed;
         ClearTourLayer();
         Question.Focus();
+        if (tourOpensSettings) { tourOpensSettings = false; _ = OpenLocalSettingsAsync(); }
     }
     /// <summary>Removes the step's parts and stops the outline's pulse, which would otherwise keep running unseen.</summary>
     private void ClearTourLayer()
