@@ -46,7 +46,7 @@ TXT, Markdown, CSV, HTML and JSON (read as "key: value" lines). Not supported: l
 ```
 
 `src/Chat` has no project of its own: always build `src/Chat.Local/Chat.Local.csproj`. (The server-managed edition
-lives on the `advance-edition` branch.)
+was removed in 1.3.0; it is in the git history up to commit `1f86304`.)
 
 Per-user data is **not** in this folder. It lives in `%LOCALAPPDATA%\WindowsChat.Local\`, encrypted with Windows
 DPAPI for the current user: `local-settings.bin` (chosen model), `ai-key-*.bin` (API keys), `chat-types.bin`

@@ -20,8 +20,8 @@ development/
   scripts/             publish-local.ps1, prepare-offline.ps1 (offline NuGet bundle in packages/, git-ignored)
 ```
 
-The server-managed edition (central AI server with AD auth) lives on the `advance-edition` branch; `main` has none of its
-code. The profile folder (`WindowsChat.Local`) and the single-instance name keep their old names so users keep their data.
+The server-managed edition (central AI server with AD auth) was removed in 1.3.0; it is in the git history up to commit
+`1f86304`. The profile folder (`WindowsChat.Local`) and the single-instance name keep their old names so users keep their data.
 
 ## Commands
 
